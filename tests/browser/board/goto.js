@@ -1,0 +1,15 @@
+const out = {}, check = (name, ok, detail) => { out[name] = ok ? "PASS" : "FAIL " + JSON.stringify(detail); };
+const panel = () => document.getElementById("panel").textContent;
+check("1 hook exists", typeof window.taskflowGoTo === "function", typeof window.taskflowGoTo);
+window.taskflowGoTo("gt.3");
+check("2 selects a task and opens its panel", cy.getElementById("gt.3").selected() && panel().includes("Third item"), panel().slice(0, 120));
+window.taskflowGoTo("gt.1");
+document.dispatchEvent(new KeyboardEvent("keydown", { key: "n", bubbles: true }));
+check("3 Next continues from the opened task (only active task: wraps to itself)", cy.getElementById("gt.1").selected() && document.getElementById("nav-pos").textContent === "1 of 1", document.getElementById("nav-pos").textContent);
+window.taskflowGoTo("zz.9");
+check("4 unknown id is reported", (document.getElementById("msg") || {}).textContent === "zz.9 is not in this tracker any more.", (document.getElementById("msg") || {}).textContent);
+const own = document.getElementById("f-owner"); own.value = "claude"; own.dispatchEvent(new Event("change"));
+window.taskflowGoTo("gt.1");
+check("5 a task hidden by filters is selected and the filter is named", cy.getElementById("gt.1").selected() && document.getElementById("msg").textContent === "gt.1 is hidden by the filters above.", document.getElementById("msg").textContent);
+own.value = ""; own.dispatchEvent(new Event("change"));
+return JSON.stringify(out, null, 1);

@@ -1,0 +1,19 @@
+const out = {}, check = (name, ok, detail) => { out[name] = ok ? "PASS" : "FAIL " + JSON.stringify(detail); };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const until = async (f, ms) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await sleep(100); return f(); };
+const claudeRows = () => document.querySelectorAll("#projects .running div");   // Claude's running tasks, on their project cards
+const row = (id) => [...claudeRows()].find((r) => r.querySelector(".id").textContent === id);
+const note = (id) => { const r = row(id), t = r.querySelector(".note"); return [t.firstChild ? t.firstChild.textContent : "", r.classList.contains("flag")]; };
+const det = () => document.getElementById("detail");
+check("1 no @sessionid is flagged", JSON.stringify(note("al.7")) === JSON.stringify(["No @sessionid: cannot tell which session runs it", true]), note("al.7"));
+check("2 a quiet session is flagged", JSON.stringify(note("de.1")) === JSON.stringify(["No session activity since 2 h ago: still running?", true]), note("de.1"));
+check("3 a registered job is shown, not flagged", JSON.stringify(note("de.2")) === JSON.stringify(["Registered slurm job, started 2026-10-09 08:00", false]), note("de.2"));
+check("4 an active session is shown, not flagged", JSON.stringify(note("de.3")) === JSON.stringify(["Session active 5 min ago", false]), note("de.3"));
+row("de.1").click();
+await until(() => det().querySelector("h2") && det().querySelector("h2").textContent === "Quiet run", 3000);
+const w = [...det().querySelectorAll("p.warn")].map((p) => p.textContent);
+check("5 the details repeat the flag with the session", w.some((t) => t.includes("No session activity since 2 h ago: still running? (session aaaa1111)")), w);
+det().querySelector("#t-done").value = "half-typed outcome"; det().querySelector("#t-done").focus();
+lastFull = 0; await poll(); await sleep(400);
+check("6 a minute's refresh keeps a half-typed outcome", det().querySelector("#t-done").value === "half-typed outcome" && document.activeElement === det().querySelector("#t-done"), det().querySelector("#t-done").value);
+return JSON.stringify(out, null, 1);

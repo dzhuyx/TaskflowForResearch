@@ -1,0 +1,1295 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Taskflow hub</title>
+<style>
+  /* Calendar-app look: a grey sidebar of white cards, soft project colours, rounded pills, system type */
+  :root {
+    --bg: #ffffff; --ink: #1d1d1f; --muted: #55555a; --faint: #636366; --line: #e5e5ea; --line2: #dcdce1; --panel: #f5f5f7; --soft: #fafafb;
+    --accent: #1d63ed; --ok: #1a7f4b; --okink: #13663b; --bad: #c62828; --badink: #a12b2b; --warn: #8a3b00; --warnbg: #fff4e8; --warnline: #f0c99a;
+    --donebg: #f4f4f6;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }   /* hidden wins over any display rule (Go to session's button) */
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--ink);
+    font: 13px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif; }
+  #app { display: grid; grid-template-rows: auto 1fr; height: 100vh; }
+  header { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; padding: 10px 20px; border-bottom: 1px solid var(--line); background: #fbfbfc; }
+  header h1 { font-size: 17px; margin: 0; font-weight: 700; letter-spacing: -.01em; display: flex; align-items: baseline; gap: 8px; }
+  header h1 span { font-size: 15px; font-weight: 400; color: var(--faint); }
+  header label { color: #3a3a3f; display: inline-flex; gap: 7px; align-items: center; min-height: 32px; }
+  header input[type=checkbox] { width: 15px; height: 15px; margin: 0; accent-color: var(--accent); }
+  #sync { margin-left: auto; color: var(--muted); font-size: 12px; display: inline-flex; align-items: center; gap: 6px; }
+  #sync::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+  #sync.off::before { background: var(--bad); }
+  button, a.button { font: inherit; font-size: 12.5px; font-weight: 600; border: 1px solid var(--line2); background: #fff; color: var(--ink); border-radius: 9px;
+    padding: 4px 12px; min-height: 32px; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+  button:hover, a.button:hover { border-color: #b4b4bb; }
+  button:focus-visible, a:focus-visible, summary:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button.primary, a.button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .seg { display: flex; gap: 2px; padding: 3px; background: #ededf0; border-radius: 11px; }
+  .seg button { border: 0; background: transparent; color: #3a3a3f; border-radius: 9px; min-height: 30px; padding: 0 16px; }
+  .seg button[aria-pressed="true"] { background: #fff; color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr) 400px; grid-template-areas: "projects tasks detail"; min-height: 0; }
+  section { overflow-y: auto; padding: 18px 16px 40px; min-width: 0; min-height: 0; }
+  #projects { grid-area: projects; background: var(--panel); border-right: 1px solid var(--line); }
+  #tasks { grid-area: tasks; padding: 18px 20px 40px; }
+  #detail { grid-area: detail; border-left: 1px solid var(--line); padding: 18px 20px 40px; }
+  .coltitle { font-size: 20px; font-weight: 700; letter-spacing: -.01em; margin: 0 4px 12px; display: flex; align-items: baseline; justify-content: space-between; gap: 4px 10px; flex-wrap: wrap; }
+  .coltitle .n { font-weight: 400; color: var(--faint); }
+  .coltitle .aside { font-size: 12px; font-weight: 400; letter-spacing: 0; color: var(--muted); display: inline-flex; align-items: center; gap: 5px; }
+  svg.i { flex: none; }
+  .muted { color: var(--faint); }
+  .foot { font-size: 12px; line-height: 1.5; color: var(--faint); margin: 14px 4px 0; }
+  code { font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; word-break: break-all; }
+  #pmsg { margin: 0 0 10px; padding: 7px 10px; border-radius: 10px; background: #fdeceb; color: var(--badink); display: none; }
+  /* project cards */
+  .project { position: relative; border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; margin: 0 0 10px; background: #fff;
+    box-shadow: 0 1px 2px rgba(0,0,0,.04); display: flex; flex-direction: column; gap: 8px; }
+  .project.archived { background: var(--soft); }
+  .project.archived .name { color: var(--faint); }
+  .project .top { display: flex; gap: 10px; align-items: center; }
+  .project .ptext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+  .project .name { font-weight: 700; font-size: 15px; color: var(--ink); text-decoration: none; overflow-wrap: anywhere; }
+  a.name:hover { color: var(--accent); }
+  .project .file { color: var(--faint); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }   /* the full path is its tooltip */
+  button.pemoji { flex: none; width: 36px; height: 36px; min-height: 36px; padding: 0; border: 0; border-radius: 10px; font-size: 18px; line-height: 1; }
+  button.pemoji.none { border: 1.5px dashed #c7c7cc; background: #fff; }
+  button.pemoji:hover { box-shadow: 0 0 0 2px var(--accent); }
+  details.pmenu { position: relative; flex: none; }
+  details.pmenu > summary { list-style: none; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; border-radius: 9px; cursor: pointer; }
+  details.pmenu > summary::-webkit-details-marker { display: none; }
+  details.pmenu > summary:hover, details.pmenu[open] > summary { background: #ededf0; }
+  details.pmenu .menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; min-width: 180px; padding: 4px; background: #fff;
+    border: 1px solid var(--line2); border-radius: 11px; box-shadow: 0 10px 28px rgba(0,0,0,.14); display: flex; flex-direction: column; }
+  details.pmenu .menu button { justify-content: flex-start; border: 0; border-radius: 8px; min-height: 34px; font-weight: 500; }
+  details.pmenu .menu button:hover { background: #eef3fe; }
+  .emojied, .dled { padding: 9px 10px; border: 1px solid var(--line); border-radius: 11px; background: var(--soft); }
+  .emojied .row { margin: 0 0 6px; }
+  .emojied input { font: inherit; font-size: 16px; width: 4.4em; padding: 3px 8px; border: 1px solid var(--line2); border-radius: 8px; }
+  .emojied .picks { display: flex; flex-wrap: wrap; gap: 2px; }
+  .emojied .picks button { font-size: 16px; padding: 0 4px; min-height: 30px; border-color: transparent; background: none; }
+  .emojied .picks button:hover { border-color: var(--accent); }
+  .emojied .picks button:disabled { opacity: .3; cursor: default; border-color: transparent; }
+  .emojied .err, .dled .err, .colored .err { color: var(--badink); margin: 4px 0 0; }
+  .colored { padding: 9px 10px; border: 1px solid var(--line); border-radius: 11px; background: var(--soft); display: flex; flex-direction: column; gap: 8px; }
+  .colored .swatches { display: flex; flex-wrap: wrap; gap: 6px; }
+  .colored button.sw { width: 30px; height: 30px; min-height: 30px; padding: 0; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px var(--line2); }
+  .colored button.sw[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--ink); }
+  .colored button.sw:disabled { opacity: .25; cursor: default; }
+  .colored .row { margin: 0; }
+  .dled .row { margin: 0 0 6px; flex-wrap: nowrap; }
+  .dled .dk { flex: none; width: 2.6em; font-size: 12px; font-weight: 600; }
+  .dled input { font: inherit; font-size: 12px; padding: 4px 8px; border: 1px solid var(--line2); border-radius: 8px; min-width: 0; }
+  .dled input[type="date"] { flex: none; }
+  .dled input.what { flex: 1 1 120px; }
+  .dled button { flex: none; }
+  /* deadlines: hard (external) solid in the project's colour; soft (internal) dashed on its tint */
+  .dls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .dl { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0 4px; min-height: 24px; padding: 1px 10px; border-radius: 12px; font-size: 11.5px; font-weight: 600; line-height: 1.35; }
+  .dl.soft { border: 1.5px dashed currentColor; }
+  .dl.hard { color: #fff; }
+  .dl.passed.hard { background: var(--bad) !important; }
+  .dl.passed.soft { background: var(--warnbg) !important; color: var(--warn) !important; }
+  .dl .what { font-weight: 500; }
+  .pbar { display: flex; align-items: center; gap: 10px; font-size: 12px; color: #3a3a3f; }
+  .pbar .track { flex: 1; height: 5px; border-radius: 3px; background: #ededf0; overflow: hidden; }
+  .pbar .fill { height: 100%; border-radius: 3px; }
+  .counts { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 12px; color: var(--muted); }
+  .counts b { color: var(--ink); }
+  .counts .act b { color: var(--ok); }
+  .problem { color: var(--badink); }
+  details.warn { color: var(--warn); font-size: 12px; }
+  details.warn summary { cursor: pointer; }
+  details.warn p { margin: 3px 0 0 14px; word-break: break-word; }
+  .running { display: flex; flex-direction: column; gap: 6px; }
+  .running div { display: flex; gap: 9px; align-items: flex-start; padding: 7px 10px; border: 1px solid #ececf0; border-radius: 10px; background: var(--soft); cursor: pointer; }
+  .running div:hover { border-color: #b4b4bb; }
+  .running div.flag { background: var(--warnbg); border-color: var(--warnline); }
+  .running div.sel { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(29,99,237,.14); }
+  .running .rt { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .running .t { font-size: 12.5px; font-weight: 600; }
+  .running .t .id { font-weight: 500; color: var(--faint); }
+  .running .note { font-size: 11.5px; color: var(--muted); }
+  .running div.flag .note { color: var(--warn); }
+  .idlehead { font-size: 12px; font-weight: 600; color: var(--faint); margin: 16px 4px 8px; }
+  .project.idle { flex-direction: row; align-items: center; gap: 10px; padding: 8px 12px; }
+  .project.idle .count { font-size: 12px; color: #3a3a3f; white-space: nowrap; }
+  /* the task lists */
+  .chipsrow { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
+  .sumchip { border-radius: 18px; background: var(--soft); border-color: var(--line); font-weight: 500; min-height: 34px; }
+  .sumchip.flag { background: var(--warnbg); border-color: var(--warnline); color: var(--warn); }
+  #tasks h2 { margin: 16px 0 8px; font-size: 15px; }
+  #tasks h2.first { margin-top: 4px; }
+  h2 button.fold { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; min-height: 32px; font-weight: 700; color: var(--ink); }
+  h2 button.fold::before { content: ""; width: 7px; height: 7px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(45deg); margin: 0 4px 3px 2px; }
+  h2 button.fold[aria-expanded="false"]::before { transform: rotate(-45deg); margin-bottom: 0; }
+  h2 button.fold:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+  h2 .count { font-size: 12px; font-weight: 600; color: var(--muted); background: #ededf0; border-radius: 10px; padding: 1px 8px; }
+  h2 .sub { font-size: 12px; font-weight: 400; color: var(--faint); }
+  .todo { display: flex; flex-direction: column; gap: 6px; }
+  .todo div { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid #ececf0; border-radius: 12px; background: #fff; cursor: pointer; }
+  .todo div:hover { border-color: #b4b4bb; }
+  .todo div.sel { background: #f2f6fe; border-color: #c9d7f5; box-shadow: 0 0 0 3px rgba(29,99,237,.10); }
+  .todo .k { flex: none; width: 16px; padding-top: 4px; font-size: 12px; color: var(--muted); text-align: right; }
+  .pe { flex: none; width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; font-size: 14px; }
+  .pe .dot { width: 9px; height: 9px; border-radius: 50%; }
+  .todo .rm { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+  .todo .l1 { font-size: 13.5px; line-height: 1.35; overflow-wrap: anywhere; }
+  .todo .l1 .id { color: var(--faint); margin-right: 4px; }
+  .todo .l2 { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 11.5px; color: var(--muted); }
+  .todo .l2 .ic { display: inline-flex; align-items: center; gap: 4px; }
+  .pill { display: inline-flex; align-items: center; gap: 4px; min-height: 20px; padding: 0 8px; border-radius: 10px; font-size: 11px; font-weight: 600; border: 1px solid #d7d7dc; color: #3a3a3f; background: #fff; }
+  .pill.waiting { background: var(--donebg); }
+  .pill.bad { color: var(--badink); border-color: var(--bad); }
+  .tiny.dlb { display: inline-flex; align-items: center; min-height: 20px; padding: 0 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .tiny.dlb.soft { border: 1.5px dashed currentColor; }
+  .tiny.dlb.hard { color: #fff; border: 1.5px solid transparent; }
+  .tiny.dlb.bad { background: var(--bad) !important; color: #fff !important; border-color: var(--bad) !important; }
+  .tiny.dlb.warn { background: var(--warnbg) !important; color: var(--warn) !important; }
+  .tiny { font-size: 11px; padding: 0 6px; border-radius: 8px; border: 1px solid var(--line2); color: var(--muted); }
+  .tiny.bad { color: var(--badink); border-color: var(--bad); }
+  .tiny.warn { color: var(--warn); border-color: var(--warn); }
+  .warn { color: var(--warn); margin: 4px 0; }
+  .fold-problem { padding: 7px 10px; border-radius: 10px; background: var(--warnbg); }
+  /* the task details (the board's side panel, static/index.html) */
+  #detail .dmeta { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+  #detail .dmeta .pe { width: 22px; height: 22px; border-radius: 7px; font-size: 12px; }
+  #detail h2 { font-size: 20px; color: var(--ink); margin: 0; line-height: 1.3; letter-spacing: -.01em; }
+  .donebox { display: flex; gap: 12px; align-items: flex-start; cursor: pointer; margin: 10px 0 8px; }
+  .donebox input { width: 22px; height: 22px; margin: 3px 0 0; accent-color: var(--ok); flex: none; cursor: pointer; }
+  .badges { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+  .badge { display: inline-flex; align-items: center; gap: 4px; min-height: 24px; padding: 0 10px; border-radius: 12px; background: var(--donebg); color: #3a3a3f; font-size: 11.5px; font-weight: 600; }
+  .badge.ready { background: #fff; color: var(--okink); border: 1.5px solid var(--ok); }
+  .badge.blocked { background: #fff; color: var(--badink); border: 1.5px solid var(--bad); }
+  .badge.done { color: var(--muted); }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+  .actions .button, .actions button { min-height: 40px; padding: 0 14px; font-size: 13px; border-radius: 11px; }
+  textarea { font: inherit; width: 100%; min-height: 48px; resize: vertical; border: 1px solid var(--line2); border-radius: 11px; padding: 8px 10px; }
+  textarea.outcome { font-size: 12.5px; }
+  .donebox + textarea.outcome { display: block; width: calc(100% - 34px); margin: -2px 0 10px 34px; }   /* under the task's name, lined up with it, as on the board */
+  dl.facts { margin: 14px 0 0; padding-top: 14px; border-top: 1px solid #ececf0; display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 12px; font-size: 13px; line-height: 1.4; }
+  dl.facts dt { color: var(--faint); }
+  dl.facts dd { margin: 0; min-width: 0; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { display: inline-flex; align-items: center; gap: 5px; min-height: 26px; padding: 0 10px; border-radius: 13px; border: 1px solid var(--line2); background: #fff; font-size: 12px; cursor: pointer; }
+  .chip.done { background: var(--donebg); border-color: transparent; color: var(--muted); }
+  .chip.unmet { border-color: var(--bad); color: var(--badink); }
+  .notes p { margin: 0 0 6px; word-break: break-word; color: #3a3a3f; }
+  .notes a.link, .doc a { color: var(--accent); cursor: pointer; text-decoration: none; word-break: break-all; font-weight: 500; }
+  .notes a.link:hover, .doc a:hover { text-decoration: underline; }
+  .docs { display: flex; flex-direction: column; gap: 6px; }
+  .doc { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+  .row { display: flex; gap: 8px; align-items: center; margin: 6px 0; flex-wrap: wrap; }
+  .msg { margin: 8px 0; padding: 7px 10px; border-radius: 10px; background: #e7f4ec; color: var(--okink); display: none; }
+  .msg.err { background: #fdeceb; color: var(--badink); }
+  .checklist { border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px 8px; margin: 14px 0 0; }
+  .checklist .chead { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; color: var(--muted); }
+  .checklist .chead b { color: var(--ink); font-size: 13px; }
+  .checklist .cbar { height: 4px; border-radius: 2px; background: #ececf0; margin: 8px 0 4px; overflow: hidden; }
+  .checklist .cbar i { display: block; height: 100%; background: var(--ok); }
+  .checklist .step { display: flex; gap: 10px; align-items: flex-start; padding: 6px 0; font-size: 13px; line-height: 1.4; cursor: pointer; }
+  .checklist .step input { flex: none; width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--ok); cursor: pointer; }
+  .checklist .step.done span { color: var(--muted); text-decoration: line-through; }
+  .steps { display: inline-flex; align-items: center; gap: 3px; font-weight: 600; } .steps.all { color: var(--okink); }
+  .sessionbox { background: var(--soft); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; margin: 14px 0 0; display: flex; flex-direction: column; gap: 6px; }
+  .sessionbox .live { color: var(--okink); font-size: 12px; font-weight: 600; }
+  .sessionbox .shead { font-size: 12px; font-weight: 600; color: var(--muted); }
+  .sessionbox code { font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; word-break: break-all; }
+  details.line { margin-top: 14px; font-size: 12px; color: var(--muted); }
+  details.line summary { cursor: pointer; }
+  details.line p { margin: 6px 0 0; font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; line-height: 1.5; word-break: break-all; color: #3a3a3f; }
+  /* the Progress view (progress.py): replaces the project and task columns while it is shown */
+  #progress { grid-area: progress; display: none; }
+  main.pv { grid-template-columns: minmax(0, 1fr) 390px; grid-template-rows: none; grid-template-areas: "progress detail"; }
+  main.pv #progress { display: block; }
+  main.pv #projects, main.pv #tasks { display: none; }
+  .pfilters { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin: 0 0 12px; }
+  .pfilters label { color: var(--muted); display: inline-flex; gap: 4px; align-items: center; }
+  .kpis { display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 6px; }
+  .kpi { border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; min-width: 140px; background: #fff; }
+  .kpi .l { font-size: 12px; color: var(--muted); }
+  .kpi .v { font-size: 22px; font-weight: 600; line-height: 1.25; }
+  .kpi .s { font-size: 11.5px; color: var(--muted); }
+  #progress h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 20px 0 6px; }
+  .lg { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted); margin: 0 0 6px; align-items: center; }
+  .lg .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 5px; vertical-align: -2px; }
+  .multiples { display: flex; flex-wrap: wrap; gap: 8px 22px; }
+  figure.chart { margin: 0; }
+  figure.chart figcaption { font-size: 12px; font-weight: 600; margin: 0 0 2px; }
+  #progress svg { display: block; }
+  #progress svg text { font: 10.5px -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif; fill: #898781; }
+  #progress svg text.lab { fill: var(--ink); font-size: 11.5px; }
+  #progress svg text.head { fill: var(--ink); font-size: 12px; font-weight: 600; }
+  #progress svg .hit { fill: transparent; cursor: pointer; outline: none; }
+  #progress svg .hit:hover, #progress svg .hit:focus { fill: rgba(26,115,232,.06); }
+  #progress svg .rowsel { fill: rgba(26,115,232,.10); }
+  figure.heat { margin: 0 0 12px; }
+  figure.heat figcaption { display: flex; flex-wrap: wrap; gap: 2px 12px; align-items: baseline; font-weight: 400; margin: 0 0 3px; }
+  figure.heat figcaption .s { color: var(--muted); }
+  figure.heat .lg { margin: 0 0 0 auto; gap: 2px 8px; font-size: 11px; }
+  figure.heat .lg .sw { width: 10px; height: 10px; border-radius: 2px; margin-right: 3px; vertical-align: -1px; }
+  #progress svg rect.cell:hover { stroke: var(--ink); stroke-width: 1; }
+  .tip { position: fixed; z-index: 10; display: none; background: #fff; border: 1px solid var(--line); border-radius: 8px;
+    box-shadow: 0 4px 14px rgba(0,0,0,.12); padding: 6px 9px; font-size: 12px; pointer-events: none; max-width: 340px; }
+  .tip .key { display: inline-block; width: 12px; height: 2px; margin-right: 6px; vertical-align: middle; }
+  .tip .lbl { color: var(--muted); }
+  table.ptable { border-collapse: collapse; font-size: 12px; width: 100%; margin: 4px 0 10px; }
+  table.ptable th { text-align: left; font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--line); padding: 3px 6px; }
+  table.ptable td { border-bottom: 1px solid #eeeeec; padding: 3px 6px; vertical-align: top; }
+  table.ptable td.n { text-align: right; font-variant-numeric: tabular-nums; }
+  @media (max-width: 1000px) {
+    main.pv { grid-template-columns: minmax(0, 1fr) 360px; grid-template-rows: none; grid-template-areas: "progress detail"; }
+  }
+  @media (max-width: 700px) {
+    main.pv { grid-template-columns: 1fr; grid-template-areas: "progress" "detail"; }
+  }
+  @media (max-width: 1000px) {
+    main:not(.pv) { grid-template-columns: minmax(0, 1fr) 360px; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+      grid-template-areas: "tasks detail" "projects detail"; }
+    #projects { border-right: 0; border-top: 1px solid var(--line); }
+  }
+  @media (max-width: 700px) {
+    html, body { overflow: auto; }
+    #app { height: auto; }
+    main:not(.pv) { grid-template-columns: 1fr; grid-template-rows: none; grid-template-areas: "tasks" "detail" "projects"; }
+    section { overflow: visible; }
+    #detail, #projects { border-left: 0; border-top: 1px solid var(--line); }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>Taskflow <span>Hub</span></h1>
+    <div class="seg" role="group" aria-label="View">
+      <button id="b-tasks" aria-pressed="true" title="The projects, what you can act on now, and a task's details">Tasks</button>
+      <button id="b-progress" aria-pressed="false" title="The Gantt chart and activity of the projects; click again to go back to the task lists">Progress</button>
+    </div>
+    <label><input id="f-archived" type="checkbox"> <span id="archived-label">Show archived</span></label>
+    <span id="sync">connecting…</span>
+  </header>
+  <main id="main">
+    <section id="progress"></section>
+    <section id="projects"></section>
+    <section id="tasks"></section>
+    <section id="detail"></section>
+  </main>
+</div>
+<script>
+"use strict";
+const TOKEN = "__TASKFLOW_TOKEN__";
+// Inside the Taskflow app (macapp/), the page talks to the app: copying, and loading and errors for the app's log, as the board does.
+const NATIVE = window.TASKFLOW_NATIVE && window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.taskflow;
+if (NATIVE) {
+  window.addEventListener("error", (e) => NATIVE.postMessage({ kind: "error", text: String(e.message) + " (line " + e.lineno + ")" }));
+  window.addEventListener("unhandledrejection", (e) => NATIVE.postMessage({ kind: "error", text: "unhandled rejection: " + String(e.reason) }));
+}
+const POLL_MS = 3000;
+// The board's emoji for assignment tags (static/index.html).
+const EMOJI = { type: { session: "\u{1F9D1}‍\u{1F4BB}" }, owner: { me: "\u{1F469}\u{1F3FB}", claude: "\u{1F4BB}" } };
+function emojiFor(it) { return EMOJI.type[it.type] || EMOJI.owner[it.owner] || ""; }
+let state = null, hash = null, busy = false, lastFull = 0;   // lastFull: when the hub was last fetched in full
+let selected = null, detail = null;   // the task shown in the third column ({ path, id }) and its details from /api/hub/item
+const el = (id) => document.getElementById(id);
+
+function h(tag, attrs, ...kids) {
+  const n = document.createElement(tag);
+  Object.entries(attrs || {}).forEach(([k, v]) => {
+    if (k === "class") n.className = v; else if (k.startsWith("on")) n.addEventListener(k.slice(2), v); else if (v !== false && v != null) n.setAttribute(k, v);
+  });
+  kids.flat(Infinity).forEach((k) => n.append(k instanceof Node ? k : document.createTextNode(String(k))));
+  return n;
+}
+async function api(path, body) {
+  const opt = body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json", "X-Taskflow-Token": TOKEN }, body: JSON.stringify(body) };
+  try {
+    const r = await fetch(path, opt);
+    let data = {};
+    try { data = await r.json(); } catch (e) { /* no body */ }
+    return { ok: r.ok, status: r.status, data };
+  } catch (e) {
+    return { ok: false, status: 0, data: { error: "The hub's server is not running. Reopen the hub." } };
+  }
+}
+function flashProjects(text) { const m = el("pmsg"); if (m) { m.textContent = text; m.style.display = "block"; } }
+
+// ---------------- look: project colours, icons, tiles (calendar-app style) ----------------
+const PALETTE = {   // the project colours (PROJECT_COLORS in taskflow.py, which picks each project's); solid fills carry white text
+  blue: { solid: "#2563EB", tint: "#E9F0FE", ink: "#1E40AF" }, purple: { solid: "#7C3AED", tint: "#F1EAFE", ink: "#5B21B6" },
+  orange: { solid: "#C2410C", tint: "#FDEDE3", ink: "#9A3412" }, green: { solid: "#15803D", tint: "#E6F4EA", ink: "#166534" },
+  teal: { solid: "#0F766E", tint: "#E2F3F1", ink: "#115E59" }, pink: { solid: "#BE185D", tint: "#FCE7F1", ink: "#9D174D" },
+  amber: { solid: "#B45309", tint: "#FEF3C7", ink: "#92400E" }, slate: { solid: "#475569", tint: "#EEF2F6", ink: "#334155" },
+};
+const COLOR_NAMES = Object.keys(PALETTE);
+// a colour by name; an older server sends only the project's place in the list, which picked the colour before
+function colorOf(name, index) { return PALETTE[name] || PALETTE[COLOR_NAMES[(((index || 0) % 8) + 8) % 8]]; }
+function projectFor(path) { return state && state.projects.find((x) => x.path === path); }
+const ICONS = {   // 16x16 line icons; text never relies on them alone
+  steps: [["rect", { x: 2, y: 2, width: 12, height: 12, rx: 3 }], ["path", { d: "M5 8.2l2 2 4-4.4" }]],
+  person: [["circle", { cx: 8, cy: 5.5, r: 3 }], ["path", { d: "M2.5 14c.8-3 3-4.5 5.5-4.5s4.7 1.5 5.5 4.5" }]],
+  laptop: [["rect", { x: 2.5, y: 3, width: 11, height: 7.5, rx: 1.2 }], ["path", { d: "M1 13h14" }]],
+  handoff: [["path", { d: "M6 4L2.5 7.5 6 11M3 7.5h7a3.5 3.5 0 010 7H9" }]],
+  warn: [["path", { d: "M8 2l6.5 11.5h-13z" }], ["path", { d: "M8 6.5v3.2M8 11.6v.2" }]],
+  flag: [["path", { d: "M3.5 14V2.5M3.5 3h8.5l-2 3 2 3H3.5" }]],
+  plus: [["path", { d: "M8 3v10M3 8h10" }]],
+  check: [["path", { d: "M3 8.5l3.2 3.2L13 4.8" }]],
+  doc: [["path", { d: "M4 1.5h5.5L13 5v9.5H4z" }], ["path", { d: "M9.5 1.5V5H13" }]],
+  star: [["path", { d: "M8 1.8l1.9 4 4.3.5-3.2 3 .9 4.3L8 11.4l-3.9 2.2.9-4.3-3.2-3 4.3-.5z", fill: true }]],
+  dots: [["circle", { cx: 3.5, cy: 8, r: 1.3, fill: true }], ["circle", { cx: 8, cy: 8, r: 1.3, fill: true }], ["circle", { cx: 12.5, cy: 8, r: 1.3, fill: true }]],
+};
+function icon(name, size, color, label) {
+  const NS = "http://www.w3.org/2000/svg", svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("width", size); svg.setAttribute("height", size); svg.setAttribute("viewBox", "0 0 16 16"); svg.setAttribute("class", "i");
+  if (label) { svg.setAttribute("role", "img"); svg.setAttribute("aria-label", label); } else svg.setAttribute("aria-hidden", "true");
+  ICONS[name].forEach(([tag, attrs]) => {
+    const e = document.createElementNS(NS, tag);
+    Object.entries(attrs).forEach(([k, v]) => { if (k !== "fill") e.setAttribute(k, v); });
+    if (attrs.fill) e.setAttribute("fill", color);
+    else { e.setAttribute("fill", "none"); e.setAttribute("stroke", color); e.setAttribute("stroke-width", "1.5"); e.setAttribute("stroke-linecap", "round"); e.setAttribute("stroke-linejoin", "round"); }
+    svg.append(e);
+  });
+  return svg;
+}
+function whoIcon(x) { return x.type === "session" ? "handoff" : x.owner === "claude" ? "laptop" : x.owner === "me" ? "person" : ""; }
+function peTile(emoji, c, name) {   // a project's tile: its emoji on its colour (from colorOf), or a dot of its colour
+  return h("span", { class: "pe", style: "background:" + c.tint, title: name || false, "aria-label": name ? "Project: " + name : false },
+    emoji || h("span", { class: "dot", style: "background:" + c.solid }));
+}
+function changedPhrase(stamp) {   // "YYYY-MM-DD HH:MM" as today 11:32, yesterday 17:05, or Oct 9
+  const day = stamp.slice(0, 10), t = new Date(), y = new Date(t.getFullYear(), t.getMonth(), t.getDate() - 1);
+  return day === dayStr(t) ? "today " + stamp.slice(11, 16) : day === dayStr(y) ? "yesterday " + stamp.slice(11, 16) : fmtDeadline(day);
+}
+
+// ---------------- projects ----------------
+function count(n, label, cls) { return h("span", cls ? { class: cls } : {}, h("b", {}, n), " " + label); }
+// ---------------- project emoji: hub only, kept in the hub's list (trackers.json), never in the tracker or on its board ----------------
+const EMOJI_PICKS = [   // as HUB_EMOJI_PICKS in taskflow.py, which gives a new project the first unused one
+  "🧠", "🧬", "🩺", "💊", "🏥", "🔬", "🧪", "📊", "📈", "🧮", "📘", "📗", "📕", "📙", "📝", "🎓", "🗂️", "🌱", "🌊", "⭐", "🔥", "🍀", "🦉", "🐝"];
+let emojiEdit = null, emojiDraft = "", emojiErr = "";   // the card whose emoji is being set, its typed text, its last error
+function oneEmoji(text) {   // the emoji, "" for none, or null when it is not exactly one emoji
+  const t = text.trim();
+  if (!t) return "";
+  const n = typeof Intl !== "undefined" && Intl.Segmenter ? [...new Intl.Segmenter("en", { granularity: "grapheme" }).segment(t)].length : 1;
+  return n === 1 && /\p{Extended_Pictographic}|\p{Regional_Indicator}|\u20E3/u.test(t) ? t : null;
+}
+function projectEmoji(path) { const p = state && state.projects.find((x) => x.path === path); return p && p.emoji ? p.emoji + " " : ""; }
+function emojiOwner(e, path) { return e ? state.projects.find((x) => x.emoji === e && x.path !== path) : null; }
+function openEmoji(path) { emojiEdit = emojiEdit === path ? null : path; emojiDraft = ""; emojiErr = ""; renderProjects(); const i = document.querySelector(".emojied input"); if (i) i.focus(); }
+async function saveEmoji(path, text) {
+  const e = oneEmoji(text);
+  if (e === null) { emojiErr = "Type or pick one emoji."; renderProjects(); return; }
+  const taken = emojiOwner(e, path);
+  if (taken) { emojiErr = e + " is already the emoji of " + taken.name + (taken.archived ? " (archived)" : "") + "; remove it there first."; renderProjects(); return; }
+  const r = await api("/api/hub/emoji", { path, emoji: e });
+  if (!r.ok) { emojiErr = r.status === 404 ? "The hub's server is older than this page. Close the hub window and open it again (Window › Hub, ⇧⌘H)." : r.data.error || "Error " + r.status; renderProjects(); return; }
+  emojiEdit = null; emojiDraft = ""; emojiErr = "";
+  render(r.data);
+  if (selected) loadDetail();
+  if (view === "progress" && prog) renderProgress();
+}
+function emojiEditor(p) {
+  const save = () => (emojiDraft.trim() ? saveEmoji(p.path, emojiDraft) : openEmoji(p.path));   // an empty box keeps the emoji it has
+  const input = h("input", { class: "emoji-in", value: emojiDraft, "aria-label": "Emoji for " + p.name, placeholder: p.emoji || "",
+    oninput: (e) => { emojiDraft = e.target.value; },
+    onkeydown: (e) => { if (e.key === "Enter") save(); if (e.key === "Escape") openEmoji(p.path); } });
+  return h("div", { class: "emojied" },
+    h("div", { class: "row" }, input,
+      h("button", { class: "primary", onclick: save }, "Save"),
+      p.emoji ? h("button", { onclick: () => saveEmoji(p.path, "") }, "Remove") : [],
+      h("button", { onclick: () => openEmoji(p.path) }, "Cancel")),
+    h("div", { class: "picks" }, EMOJI_PICKS.map((e) => {
+      const taken = emojiOwner(e, p.path);
+      return h("button", { title: taken ? "Used by " + taken.name : "Use " + e, disabled: taken ? "disabled" : false, onclick: () => saveEmoji(p.path, e) }, e);
+    })),
+    h("div", { class: "muted", style: "font-size:11.5px;margin-top:4px" }, "Pick one, or type any emoji in the box (⌃⌘Space opens the Mac emoji picker). It shows on this project's tasks in the hub, not on its board."),
+    emojiErr ? h("p", { class: "err" }, emojiErr) : []);
+}
+// ---------------- project deadlines: tags on the tracker's title line (@harddeadline, @softdeadline), so Claude sessions see them too ----------------
+const DL_KINDS = ["hard", "soft"], DL_NAME = { hard: "Hard", soft: "Soft" };
+const DL_HELP = { hard: "Hard deadline: external and real; it cannot slip", soft: "Soft deadline: internal; it may slip a few days, but keep it" };
+const SOFT_GRACE_DAYS = 3, URGENT_DAYS = 28;   // as in taskflow.py
+let dlEdit = null, dlDraft = null, dlErr = "";   // the card whose deadlines are being edited, the values typed, the last error
+function daysPhrase(n) { return n === 0 ? "today" : n === 1 ? "tomorrow" : n > 1 ? "in " + n + " days" : n === -1 ? "passed yesterday" : "passed " + -n + " days ago"; }
+function dlLevel(d) { return d.days_left >= 0 ? "" : d.kind === "soft" && d.days_left >= -SOFT_GRACE_DAYS ? "warn" : "bad"; }   // a passed soft one is overdue after its grace days
+function fmtDeadline(date, weekday) {
+  const t = dayOf(date), o = { month: "short", day: "numeric" };
+  if (weekday) o.weekday = "short";
+  if (t.getFullYear() !== new Date().getFullYear()) o.year = "numeric";
+  return t.toLocaleDateString("en-US", o);
+}
+function shortDays(n) { return n === 0 ? "today" : n === 1 ? "tomorrow" : n > 1 ? n + " days" : n === -1 ? "passed yesterday" : "passed " + -n + " days ago"; }
+function deadlineSpan(d, c) {   // a project's deadline as a pill: hard solid in its colour, soft dashed on its tint; passed ones turn red or orange
+  c = c || PALETTE.blue;
+  return h("span", { class: "dl " + d.kind + (d.days_left < 0 ? " passed" : ""), style: d.kind === "hard" ? "background:" + c.solid : "background:" + c.tint + ";color:" + c.ink,
+    title: DL_HELP[d.kind] + (d.days_left < 0 ? ". Move or remove it if it no longer applies." : "") },
+    h("span", { class: "kind" }, DL_NAME[d.kind]), " · " + fmtDeadline(d.date, true) + " · ", h("span", { class: "when " + dlLevel(d) }, daysPhrase(d.days_left)),
+    d.what ? h("span", { class: "what" }, "· " + d.what) : []);
+}
+function deadlineBadge(x) {   // on a task whose project's nearest deadline ranks it (within URGENT_DAYS, or passed)
+  const d = x.deadline, c = colorOf(x.project_color, x.project_index);
+  return d ? h("span", { class: "tiny dlb " + d.kind + (dlLevel(d) ? " " + dlLevel(d) : ""), style: d.kind === "hard" ? "background:" + c.solid : "background:" + c.tint + ";color:" + c.ink,
+    title: DL_HELP[d.kind] + ": " + fmtDeadline(d.date, true) + (d.what ? ", " + d.what : "") + " (" + x.project + ")" },
+    DL_NAME[d.kind] + " · " + shortDays(d.days_left)) : [];
+}
+function openDeadlines(p) {
+  dlEdit = dlEdit === p.path ? null : p.path; dlErr = "";
+  dlDraft = Object.fromEntries(DL_KINDS.map((k) => { const d = p.deadlines.find((x) => x.kind === k); return [k, { date: d ? d.date : "", what: d ? d.what : "" }]; }));
+  renderProjects();
+  const i = dlEdit && document.querySelector(".dled input");
+  if (i) i.focus();
+}
+async function saveDeadlines(path) {
+  for (const k of DL_KINDS) {
+    const d = dlDraft[k];
+    d.what = d.what.trim();
+    dlErr = !d.date && d.what ? "Give the " + k + " deadline's date, or clear what is due." : /[()]/.test(d.what) ? "Write [ ] instead of ( ) in what is due." : "";
+    if (dlErr) { renderProjects(); return; }
+  }
+  const r = await api("/api/hub/deadline", { path, hard: dlDraft.hard, soft: dlDraft.soft });
+  if (!r.ok) { dlErr = r.status === 404 ? "The hub's server is older than this page. Close the hub window and open it again (Window › Hub, ⇧⌘H)." : r.data.error || "Error " + r.status; renderProjects(); return; }
+  dlEdit = null; dlDraft = null;
+  render(r.data);
+  if (selected) renderDetail();
+  setSync("saved " + new Date().toLocaleTimeString());
+}
+function deadlineEditor(p) {
+  const keys = (e) => { if (e.key === "Enter") saveDeadlines(p.path); if (e.key === "Escape") openDeadlines(p); };
+  const row = (k) => h("div", { class: "row" },
+    h("span", { class: "dk", title: DL_HELP[k] }, DL_NAME[k]),
+    h("input", { type: "date", value: dlDraft[k].date, "data-keep": "dl-" + k + "-date", "aria-label": DL_NAME[k] + " deadline of " + p.name,
+      oninput: (e) => { dlDraft[k].date = e.target.value; }, onkeydown: keys }),
+    h("input", { class: "what", value: dlDraft[k].what, maxlength: "80", placeholder: "what is due (optional)", "data-keep": "dl-" + k + "-what",
+      "aria-label": "What is due by the " + k + " deadline", oninput: (e) => { dlDraft[k].what = e.target.value; }, onkeydown: keys }),
+    dlDraft[k].date || dlDraft[k].what ? h("button", { title: "Remove the " + k + " deadline when you save", onclick: () => { dlDraft[k] = { date: "", what: "" }; renderProjects(); } }, "Clear") : []);
+  return h("div", { class: "dled" }, row("hard"), row("soft"),
+    h("div", { class: "row" }, h("button", { class: "primary", onclick: () => saveDeadlines(p.path) }, "Save"), h("button", { onclick: () => openDeadlines(p) }, "Cancel")),
+    h("div", { class: "muted", style: "font-size:11.5px" }, "Hard: an external, real deadline. Soft: an internal one; it may slip a few days, but keep it. From " + URGENT_DAYS / 7 +
+      " weeks before the nearest one, this project's tasks rank ahead of others of the same priority, the nearest deadline first; a soft one counts " + SOFT_GRACE_DAYS +
+      " days after its date. Saved on the tracker's title line, where Claude sessions see them too."),
+    dlErr ? h("p", { class: "err" }, dlErr) : []);
+}
+function emojiButton(p) {
+  const c = colorOf(p.color, p.index);
+  return h("button", { class: "pemoji" + (p.emoji ? "" : " none"), style: p.emoji ? "background:" + c.tint : false, "aria-expanded": emojiEdit === p.path ? "true" : "false",
+    "aria-label": p.emoji ? "Change or remove the emoji of " + p.name : "Give " + p.name + " an emoji",
+    title: p.emoji ? "Change or remove this project's emoji" : "Give this project an emoji, shown on its tasks in the hub", onclick: () => openEmoji(p.path) },
+    p.emoji || icon("plus", 14, "#636366"));
+}
+let colorEdit = null, colorErr = "";   // the card whose colour is being picked, and the last error
+function openColor(path) { colorEdit = colorEdit === path ? null : path; colorErr = ""; renderProjects(); const b = document.querySelector(".colored button[aria-pressed='true']"); if (b) b.focus(); }
+async function saveColor(path, color) {
+  const r = await api("/api/hub/color", { path, color });
+  if (!r.ok) { colorErr = r.status === 404 ? "The hub's server is older than this page. Close the hub window and open it again (Window › Hub, ⇧⌘H)." : r.data.error || "Error " + r.status; renderProjects(); return; }
+  colorEdit = null; colorErr = "";
+  render(r.data);
+  if (selected) renderDetail();
+  if (view === "progress" && prog) renderProgress();
+}
+function colorEditor(p) {   // eight swatches; one another project has is shown but not offered while a free one exists
+  const others = new Set(state.projects.filter((x) => x.path !== p.path).map((x) => x.color)), free = COLOR_NAMES.some((k) => !others.has(k));
+  return h("div", { class: "colored" },
+    h("div", { class: "swatches", role: "group", "aria-label": "Colour of " + p.name }, COLOR_NAMES.map((k) => {
+      const holder = state.projects.find((x) => x.path !== p.path && x.color === k), blocked = !!holder && free;
+      return h("button", { class: "sw", style: "background:" + PALETTE[k].solid, "aria-pressed": p.color === k ? "true" : "false", disabled: blocked ? "disabled" : false,
+        "aria-label": k + (holder ? ", used by " + holder.name : ""), title: holder ? k + ": used by " + holder.name : k,
+        onclick: () => (p.color === k ? openColor(p.path) : saveColor(p.path, k)) });
+    })),
+    h("div", { class: "row" },
+      p.color_chosen ? h("button", { onclick: () => saveColor(p.path, ""), title: "Let the hub pick: the first colour no other project has" }, "Automatic") : [],
+      h("button", { onclick: () => openColor(p.path) }, "Cancel")),
+    h("div", { class: "muted", style: "font-size:11.5px" }, "Its colour in the hub and on its board. A new project gets the first colour no other project has."),
+    colorErr ? h("p", { class: "err" }, colorErr) : []);
+}
+function closeMenus(keep) { document.querySelectorAll("details.pmenu[open]").forEach((d) => { if (d !== keep) d.open = false; }); }
+document.addEventListener("click", (e) => closeMenus(e.target.closest ? e.target.closest("details.pmenu") : null));
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenus(null); });
+function projectMenu(p) {   // ⋯: deadlines, emoji, archive
+  return h("details", { class: "pmenu" },
+    h("summary", { "aria-label": "Actions for " + p.name, title: "Deadlines, emoji, archive" }, icon("dots", 16, "#55555a")),
+    h("div", { class: "menu" },
+      p.problem ? [] : h("button", { class: "dlbtn", "aria-expanded": dlEdit === p.path ? "true" : "false", title: "Set or change this project's hard and soft deadlines",
+        onclick: () => { closeMenus(null); openDeadlines(p); } }, "Deadlines…"),
+      h("button", { onclick: () => { closeMenus(null); openEmoji(p.path); } }, p.emoji ? "Change the emoji…" : "Give it an emoji…"),
+      h("button", { class: "colbtn", onclick: () => { closeMenus(null); openColor(p.path); } }, "Colour…"),
+      h("button", { class: "archbtn", title: p.archived ? "Show this project in the hub again" : "Hide this project from the hub; the tracker file is not touched",
+        onclick: () => { closeMenus(null); setArchived(p.path, !p.archived); } }, p.archived ? "Unarchive" : "Archive")));
+}
+function projectCard(p) {
+  const c = colorOf(p.color, p.index);
+  const card = h("div", { class: "project" + (p.archived ? " archived" : "") },
+    h("div", { class: "top" }, emojiButton(p),
+      h("div", { class: "ptext" },
+        p.problem ? h("span", { class: "name" }, p.name) : h("a", { class: "name", href: p.url, title: "Open the board: " + p.path }, p.name),
+        h("span", { class: "file", title: p.path }, p.folder + (p.changed ? " · changed " + changedPhrase(p.changed) : ""))),
+      projectMenu(p)),
+    emojiEdit === p.path ? emojiEditor(p) : [],
+    colorEdit === p.path ? colorEditor(p) : [],
+    p.deadlines.length ? h("div", { class: "dls", "aria-label": "Deadlines" }, p.deadlines.map((d) => deadlineSpan(d, c))) : [],
+    dlEdit === p.path && !p.problem ? deadlineEditor(p) : []);
+  if (p.problem) { card.append(h("div", { class: "problem" }, p.problem + ": ", h("code", {}, p.path))); return card; }
+  const r = p.ready, pct = p.total ? Math.round((100 * p.done) / p.total) : 0;
+  card.append(
+    h("div", { class: "pbar" }, h("span", { class: "track", "aria-hidden": "true" }, h("span", { class: "fill", style: "display:block;width:" + pct + "%;background:" + c.solid })),
+      h("span", {}, h("b", {}, p.done), " of " + p.total + " done")),
+    h("div", { class: "counts", title: "Unblocked tasks for you and hand-offs, Claude's tasks in progress, then blocked" },
+      h("span", { class: "act" }, h("b", {}, r.me), " for you"),
+      h("span", { class: "act" }, h("b", {}, r.handoff), " hand-off" + (r.handoff === 1 ? "" : "s")),
+      h("span", {}, h("b", {}, p.claude_running), " being run by Claude"),
+      r.other ? h("span", { class: "act" }, h("b", {}, r.other), " other owner or none") : [],
+      h("span", {}, h("b", {}, p.blocked), " blocked")));
+  const running = state.groups.claude.filter((x) => x.path === p.path);
+  if (running.length) card.append(runningList(running));
+  if (p.warnings.length) {
+    card.append(h("details", { class: "warn" }, h("summary", {}, p.warnings.length + " warning" + (p.warnings.length === 1 ? "" : "s") + " · fix in the tracker (the board lists them too)"),
+      p.warnings.map((w) => h("p", {}, w))));
+  }
+  return card;
+}
+function idleCard(p) {   // a project with nothing to act on, no deadline and nothing running: one line
+  return h("div", { class: "project idle" }, emojiButton(p),
+    h("a", { class: "name", href: p.url, title: "Open the board: " + p.path, style: "flex:1;min-width:0;font-size:13.5px" }, p.name),
+    h("span", { class: "count", title: p.folder + (p.changed ? " · changed " + p.changed : "") }, p.done + " of " + p.total + " done"),
+    projectMenu(p));
+}
+function runningList(list) {   // Claude's tasks in progress in one project, each with its job or session activity; click for details
+  return h("div", { class: "running", "aria-label": "Being run by Claude" }, list.map((x) => {
+    const n = activityNote(x.activity);
+    return h("div", {
+      class: (n && n[1] ? "flag" : "") + (selected && selected.path === x.path && selected.id === x.id ? " sel" : ""), tabindex: "0",
+      title: "Being run by Claude. Click for details; double-click to open " + x.project + " on " + x.id + (x.activity && x.activity.last ? "\nLast written to the session's transcript at " + x.activity.last : ""),
+      onclick: () => select(x.path, x.id), ondblclick: () => { location.href = x.url; },
+      onkeydown: (e) => { if (e.key === "Enter") select(x.path, x.id); } },
+      n && n[1] ? icon("warn", 14, "#8a3b00", "Needs a look") : icon("laptop", 14, "#3a3a3f", "Being run by Claude"),
+      h("span", { class: "rt" },
+        h("span", { class: "t" }, h("span", { class: "id" }, x.id), " " + (x.title.length > 90 ? x.title.slice(0, 87) + "…" : x.title), x.priority === "high" ? " ★" : ""),
+        h("span", { class: "note" }, n ? n[0].charAt(0).toUpperCase() + n[0].slice(1) : "",
+          x.ready === false ? h("span", { class: "tiny bad", style: "margin-left:6px", title: "In progress while a prerequisite is unfinished" }, "blocked") : [],
+          x.priority === "low" ? h("span", { class: "tiny", style: "margin-left:6px" }, "low") : [])));
+  }));
+}
+function renderProjects() {
+  const typing = document.activeElement && document.activeElement.classList.contains("emoji-in");   // a redraw keeps the emoji being typed
+  const keep = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.keep : null;   // and the deadline field
+  if (emojiEdit && !state.projects.some((x) => x.path === emojiEdit)) emojiEdit = null;
+  if (dlEdit && !state.projects.some((x) => x.path === dlEdit && !x.problem)) dlEdit = null;
+  const showArchived = el("f-archived").checked;
+  const live = state.projects.filter((x) => !x.archived), archived = state.projects.filter((x) => x.archived);
+  el("archived-label").textContent = "Show archived (" + archived.length + ")";
+  // ordered by urgency, as the tasks are ranked: the nearest deadline that counts first, then any deadline, then by name;
+  // projects with nothing to act on, no deadline and nothing running go in one-line rows at the end
+  const nearest = (x) => (x.deadlines.length ? Math.min(...x.deadlines.map((d) => d.days_left)) : Infinity);
+  const urg = (x) => (x.urgency == null ? Infinity : x.urgency);
+  const byUrgency = (a, b) => urg(a) - urg(b) || nearest(a) - nearest(b) || a.name.localeCompare(b.name);
+  const idle = (x) => !x.problem && x.ready && !x.ready.me && !x.ready.handoff && !x.ready.other && !x.claude_running && !x.deadlines.length
+    && !x.warnings.length && emojiEdit !== x.path && dlEdit !== x.path && colorEdit !== x.path;
+  const busyOnes = live.filter((x) => !idle(x)).sort(byUrgency), idleOnes = live.filter(idle).sort((a, b) => a.name.localeCompare(b.name));
+  const running = state.groups.claude.length;
+  el("projects").replaceChildren(
+    h("div", { class: "coltitle", role: "heading", "aria-level": "2" }, h("span", {}, "Projects ", h("span", { class: "n" }, live.length)),
+      running ? h("span", { class: "aside" }, icon("laptop", 14, "#55555a"), running + " being run by Claude") : []),
+    h("div", { id: "pmsg" }),
+    ...busyOnes.map(projectCard),
+    ...(idleOnes.length ? [h("div", { class: "idlehead" }, "Nothing to do now"), ...idleOnes.map(idleCard)] : []),
+    ...(showArchived && archived.length ? [h("div", { class: "idlehead" }, "Archived"), ...archived.map(projectCard)] : []),
+    ...(live.length || (showArchived && archived.length) ? [] : [h("p", { class: "muted" }, state.projects.length ? "Every project is archived; tick 'Show archived' to see them."
+      : ["No trackers in the hub's list yet. New trackers join it when created with --init; add an existing one with ", h("code", {}, "python3 taskflow.py TRACKER --hub-add"), "."])]),
+    h("p", { class: "foot" }, "Each tracker is one project, ordered by its nearest deadline. Click a name to open its board, the tile to set its emoji (shown on its tasks in the hub, never on its board), and ⋯ for its deadlines or to archive it. Under the counts are the tasks Claude is running there; one is flagged in orange after an hour without session activity, or when it cannot be checked. The list is kept in ",
+      h("code", {}, state.list), "."));
+  const i = typing && document.querySelector(".emojied input");
+  if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
+  const k = keep && document.querySelector(`.dled [data-keep="${keep}"]`);
+  if (k) { k.focus(); try { k.setSelectionRange(k.value.length, k.value.length); } catch (e) { /* a date field has no text selection */ } }
+}
+
+// ---------------- task lists ----------------
+function ago(min) {
+  if (min < 1) return "just now";
+  if (min < 60) return min + " min ago";
+  if (min < 48 * 60) return Math.round(min / 60) + " h ago";
+  return Math.round(min / (24 * 60)) + " days ago";
+}
+// For a Claude task in progress: [text, flagged] about its registered job or its session's last activity.
+function activityNote(a) {
+  if (!a) return null;
+  if (a.job) return ["registered " + a.job.kind + " job, started " + a.job.started.replace("T", " ").slice(0, 16), false];
+  if (a.registry_unreadable) return ["the job registry could not be read", true];
+  if (!a.sessions) return ["no @sessionid: cannot tell which session runs it", true];
+  if (!a.last) return ["session transcript not found", true];
+  return a.idle ? ["no session activity since " + ago(a.quiet_min) + ": still running?", true] : ["session active " + ago(a.quiet_min), false];
+}
+function startsText(x) {   // what finishing it starts, behind its rank (score 3 or 2), as on the board
+  return x.score === 3 ? h("span", { class: "ic", title: "Finishing this unblocks one of Claude's own tasks" }, icon("laptop", 11, "#55555a"), "Starts Claude's work")
+    : x.score === 2 ? h("span", { class: "ic", title: "Finishing this unblocks a hand-off to a Claude session" }, icon("handoff", 11, "#55555a"), "Starts a hand-off") : [];
+}
+function taskList(list, ranked) {   // ranked: the user's tasks and hand-offs, in the hub's order
+  return h("div", { class: "todo" }, list.map((x, k) => h("div", {
+    class: selected && selected.path === x.path && selected.id === x.id ? "sel" : "", tabindex: "0",
+    title: "Click for details; double-click to open " + x.project + " on " + x.id,
+    onclick: () => select(x.path, x.id), ondblclick: () => { location.href = x.url; },
+    onkeydown: (e) => { if (e.key === "Enter") select(x.path, x.id); } },
+    h("span", { class: "k" }, k + 1),
+    peTile(x.project_emoji, colorOf(x.project_color, x.project_index), x.project),
+    h("span", { class: "rm" },
+      h("span", { class: "l1" }, h("span", { class: "id" }, x.id), h("b", {}, x.title.length > 120 ? x.title.slice(0, 117) + "…" : x.title),
+        x.priority === "high" ? [" ", icon("star", 11, "#1d1d1f", "High priority")] : []),
+      h("span", { class: "l2" },
+        deadlineBadge(x),
+        x.owner !== "claude" && x.status === "inprogress" ? h("span", { class: "pill" }, "In progress") : [],
+        x.status === "waiting" ? h("span", { class: "pill waiting" }, "Waiting") : [],
+        x.status === "waiting" && x.waiting_note ? h("span", { title: x.waiting_note }, x.waiting_note.length > 80 ? x.waiting_note.slice(0, 77) + "…" : x.waiting_note) : [],
+        x.priority === "low" ? h("span", { class: "pill" }, "Low priority") : [],
+        x.steps && x.steps[1] ? h("span", { class: "steps" + (x.steps[0] === x.steps[1] ? " all" : ""), title: "Checklist: " + x.steps[0] + " of " + x.steps[1] + " steps done" },
+          icon("steps", 11, x.steps[0] === x.steps[1] ? "#13663b" : "#55555a"), x.steps[0] + "/" + x.steps[1]) : [],
+        ranked ? startsText(x) : [],
+        x.unblocks ? h("span", { title: x.unblocks + " unfinished item(s) depend on this, directly or through others" }, "Unblocks " + x.unblocks) : [],
+        h("span", { class: "p" }, x.project))))));
+}
+const GROUPS = [   // key, title, when empty, what it is, icon
+  ["me", "For you", "None: nothing of yours is unblocked.", "", "person"],
+  ["handoff", "Hand-offs", "None: no hand-off is unblocked.", "go back to a Claude session", "handoff"],
+  ["other", "Other owner or none", "", "", ""],
+];
+const folded = new Set();   // the groups folded in the task list, saved by the hub's server (hub_view.json), so they outlast the window
+let foldProblem = "";       // shown above the lists until a save succeeds
+const OLD_SERVER = "The hub's server is older than this page, so folded lists are not saved. Close the hub window and open it again (Window › Hub, ⇧⌘H).";
+async function loadFolded() {
+  const r = await api("/api/hub/view");
+  if (r.ok) { r.data.folded.forEach((k) => folded.add(k)); if (r.data.problem) foldProblem = r.data.problem + ". Every list is shown; folding one saves the file anew."; }
+  else foldProblem = r.status === 404 ? OLD_SERVER : "Could not load the folded lists: " + (r.data.error || "error " + r.status);
+}
+let foldSaving = Promise.resolve();   // fold saves go one after another, so quick clicks cannot save an older state last
+async function toggleFold(key, all) {   // all (Option-click): fold or unfold every group, as this one goes
+  const fold = !folded.has(key);
+  (all ? GROUPS.map(([k]) => k) : [key]).forEach((k) => { if (fold) folded.add(k); else folded.delete(k); });
+  renderTasks();
+  const b = document.querySelector(`#tasks button.fold[data-group="${key}"]`);
+  if (b) b.focus();   // the list was redrawn; keep the keyboard on this heading
+  const want = [...folded];   // what this click shows, sent after any save still on its way
+  const r = await (foldSaving = foldSaving.then(() => api("/api/hub/view", { folded: want })));
+  const was = foldProblem;
+  foldProblem = r.ok ? "" : r.status === 404 ? OLD_SERVER : "Could not save the folded lists: " + (r.data.error || "error " + r.status);
+  if (foldProblem !== was) { renderTasks(); const b2 = document.querySelector(`#tasks button.fold[data-group="${key}"]`); if (b2) b2.focus(); }
+}
+function summaryChips() {   // the next deadline, and Claude runs that need a look
+  const live = state.projects.filter((x) => !x.archived && !x.problem);
+  let next = null;
+  live.forEach((x) => x.deadlines.forEach((d) => {
+    if (!next || d.days_left < next.d.days_left || (d.days_left === next.d.days_left && d.kind === "hard")) next = { d, p: x };
+  }));
+  const flagged = state.groups.claude.filter((x) => { const n = activityNote(x.activity); return n && n[1]; });
+  const chips = [];
+  if (next) {
+    const { d, p } = next, first = ["me", "handoff", "other"].flatMap((k) => state.groups[k]).find((x) => x.path === p.path);
+    chips.push(h("button", { class: "sumchip", title: (d.what ? d.what + ". " : "") + (first ? "Click to show " + p.name + "'s first task" : ""),
+      onclick: () => { if (first) select(first.path, first.id); } }, icon("flag", 13, colorOf(p.color, p.index).ink),
+      h("span", {}, d.days_left < 0 ? DL_NAME[d.kind] + " deadline " + daysPhrase(d.days_left) + " · " : "Next deadline ", h("b", {}, fmtDeadline(d.date, true)),
+        " · " + d.kind + (d.days_left >= 0 ? " · " + daysPhrase(d.days_left) : "") + " · " + p.name)));
+  }
+  if (flagged.length) chips.push(h("button", { class: "sumchip flag", title: "Click for its details", onclick: () => select(flagged[0].path, flagged[0].id) },
+    icon("warn", 13, "#8a3b00"), flagged.length + " Claude run" + (flagged.length === 1 ? " needs" : "s need") + " a look"));
+  return chips.length ? [h("div", { class: "chipsrow" }, chips)] : [];
+}
+function renderTasks() {
+  const g = state.groups;
+  el("tasks").replaceChildren(
+    h("div", { class: "coltitle", role: "heading", "aria-level": "2" }, "What you can act on now"),
+    ...(foldProblem ? [h("p", { class: "warn fold-problem" }, foldProblem)] : []),   // spread: replaceChildren does not flatten
+    ...summaryChips(),
+    ...GROUPS.filter(([key]) => key !== "other" || g.other.length).map(([key, title, none, sub, ic], k) => [
+      h("h2", k ? {} : { class: "first" }, h("button", { class: "fold", "data-group": key, "aria-expanded": folded.has(key) ? "false" : "true",
+        title: (folded.has(key) ? "Show" : "Fold") + " this list; Option-click to " + (folded.has(key) ? "show" : "fold") + " every list",
+        onclick: (e) => toggleFold(key, e.altKey) }, ic ? icon(ic, 15, "#1d1d1f") : [], title, h("span", { class: "count" }, g[key].length), sub ? h("span", { class: "sub" }, sub) : [])),
+      folded.has(key) ? [] : g[key].length ? taskList(g[key], key === "me" || key === "handoff") : h("p", { class: "muted" }, none)]).flat(2),   // flat(2): a folded group's [] leaves nothing
+    h("p", { class: "foot" }, "The unblocked tasks of the unarchived projects: not done, every prerequisite done. Ranked by priority (high first, low last); then, within each priority, how much finishing it frees Claude to work (each Claude task waiting on it counts 1, shared among everything that task still waits for; a hand-off counts half; not for a task you are waiting on); then by how close each project's deadline is, within " + URGENT_DAYS / 7 + " weeks or passed (a soft one counts " + SOFT_GRACE_DAYS + " days after its date); then waiting after the rest; then by what finishing a task starts: Claude's own work, then a hand-off; then how much waits downstream. Click a task for its details; double-click to open it on its board."));
+}
+
+// ---------------- task details (read-only; the board's side panel, static/index.html) ----------------
+function linkLabel(u) {
+  if (u.startsWith("file://")) { try { return decodeURIComponent(u.split("/").pop()); } catch (e) { return u; } }
+  if (u.startsWith("hook://")) { try { return (new URLSearchParams(u.split("?")[1] || "").get("n") || "Hookmark link") + " (Hookmark)"; } catch (e) { return u; } }
+  try { return new URL(u).host; } catch (e) { return u; }
+}
+function noteLine(text) {
+  const p = h("p", {});
+  const re = /(?:file|hook|https?):\/\/[^\s<>"]+/g;
+  let last = 0, m;
+  while ((m = re.exec(text))) {
+    if (m.index > last) p.append(text.slice(last, m.index));
+    const url = m[0];
+    p.append(h("a", { class: "link", title: url, onclick: () => openLink(url) }, linkLabel(url)));
+    last = m.index + url.length;
+  }
+  if (last < text.length) p.append(text.slice(last));
+  return p;
+}
+function chip(id, extra) {   // a related task: its owner's icon (a tick when done), id and short title; click to see it
+  const it = detail.related[id];
+  const cls = "chip" + (it && it.done ? " done" : "") + (!it || !it.done ? (extra === "need" ? " unmet" : "") : "");
+  const ic = it && it.done ? icon("check", 10, "#1a7f4b", "done") : it && whoIcon(it) ? icon(whoIcon(it), 11, "#3a3a3f") : [];
+  return h("span", { class: cls, title: it ? it.title : "unknown id", tabindex: "0", onclick: () => it && select(detail.path, id),
+    onkeydown: (e) => { if (e.key === "Enter" && it) select(detail.path, id); } },
+    ic, id, it ? " " + (it.title.length > 30 ? it.title.slice(0, 28) + "…" : it.title) : "");
+}
+const msgBox = () => h("div", { class: "msg", id: "msg" });
+function flash(text, err) {
+  const m = el("msg"); if (!m) return;
+  m.textContent = text; m.className = "msg" + (err ? " err" : ""); m.style.display = "block";
+}
+const BARE_URL = /^(?:file|hook|https?):\/\/\S+$/;
+function docRow(d) {
+  const target = d.hook || d.file || d.web;
+  return h("div", { class: "doc" },
+    h("a", { title: (d.path || target) + (d.hook ? "\nOpens through Hookmark" : ""), onclick: () => openLink(target) }, d.name),
+    d.hook ? h("span", { class: "tiny" }, "Hookmark") : [],
+    d.file && !d.hook && d.exists && !(state && state.hookmark === false) ? h("span", { class: "tiny bad", title: "Run 'Add Hookmark links' on the board" }, "no Hookmark link") : [],
+    d.file && d.exists === false && !d.hook ? h("span", { class: "tiny bad" }, "file not found") : []);
+}
+function sessionRow(sid) {
+  const s = detail.sessions[sid] || {};
+  return h("div", { class: "row" },
+    h("span", {}, h("b", {}, s.title || "untitled session"), " ", h("code", { title: sid }, sid.slice(0, 8)),
+      s.found === false ? h("span", { class: "tiny bad", title: "No transcript under ~/.claude/projects (cleaned up, or another machine)" }, " transcript not found") : [],
+      h("span", { class: "live", "data-sid": sid })),   // "running in VS Code", once the server finds it running
+    // Go to session: shown only while the session runs; brings its VS Code panel or Ghostty tab forward
+    h("button", { class: "primary goto", "data-sid": sid, hidden: "hidden", title: "Bring this session's window to the front", onclick: () => gotoSession(sid) }, "Go to session"),
+    h("button", { title: s.resume || "", onclick: () => copyText(s.resume || ("claude --resume " + sid), "Resume command copied. Paste it into a terminal.") }, "Copy resume command"),
+    h("button", { title: sid, onclick: () => copyText(sid, "Session id copied.") }, "Copy id"));
+}
+function sessionBox(it) {
+  const handoff = it.type === "session";
+  if (!handoff && !it.tags.session && !it.sessionids.length) return [];
+  const prompts = it.notes.filter((n) => /^Prompt:\s*/.test(n)).map((n) => n.replace(/^Prompt:\s*/, ""));
+  const resume = it.sessionids.length ? null : it.notes.find((n) => /claude --resume/.test(n));
+  return h("div", { class: "sessionbox" },
+    h("div", { class: "shead" }, handoff ? "Go back to this Claude Code session" : "From Claude Code session" + (it.sessionids.length > 1 ? "s" : "")),
+    it.sessionids.length ? it.sessionids.map(sessionRow)
+      : h("div", {}, it.tags.session || "(not named)", " ", h("span", { class: "tiny bad", title: "Add @sessionid(<full session id>) to the item" }, "no @sessionid")),
+    resume ? h("div", { class: "muted" }, h("code", {}, resume)) : [],
+    prompts.map((pr, k) => h("div", { class: "row" },
+      h("button", { class: "primary", onclick: () => copyText(pr) }, prompts.length > 1 ? "Copy prompt " + (k + 1) : "Copy prompt"),
+      h("span", { class: "muted" }, pr.length > 90 ? pr.slice(0, 87) + "…" : pr))));
+}
+async function copyText(s, done) {
+  try {
+    if (NATIVE) NATIVE.postMessage({ kind: "copy", text: s }); else await navigator.clipboard.writeText(s);
+    flash(done || "Prompt copied. Paste it into the session.");
+  }
+  catch (e) { flash("Could not copy automatically; select the prompt in the notes instead.", true); }
+}
+// Its checklist, as on the board: the indented "- " lines under the task; a step is ticked here with @done
+// on its own line, through the board's edit (conflict check, backup).
+function checklistBox(it) {
+  const cl = it.checklist || [];
+  if (!cl.length) return [];
+  const done = cl.filter((c) => c.done).length;
+  return h("div", { class: "checklist" },
+    h("div", { class: "chead" }, h("b", {}, "Checklist"), h("span", {}, done + " of " + cl.length + " done")),
+    h("div", { class: "cbar", "aria-hidden": "true" }, h("i", { style: "width:" + Math.round((100 * done) / cl.length) + "%" })),
+    cl.map((c) => h("label", { class: "step" + (c.done ? " done" : ""), style: c.depth ? "padding-left:" + c.depth * 22 + "px" : false },
+      h("input", { type: "checkbox", checked: c.done ? "checked" : false, disabled: it.readonly, onchange: (e) => checkStep(c, e.target.checked) }),
+      h("span", {}, c.text))));
+}
+async function checkStep(c, done) {   // tick or untick one step, as tick() does a task
+  if (!detail || busy) { renderDetail(); return; }
+  const it = detail.item;
+  busy = true;
+  const r = await api("/api/hub/edit", { path: detail.path, id: it.id, expected_line: it.raw, op: "check", args: { line: c.line, expected: c.raw, done } });
+  busy = false;
+  if (r.ok) { render(r.data); await loadDetail(); setSync("saved " + new Date().toLocaleTimeString()); return; }
+  if (r.status === 409) {
+    const s = await api("/api/hub");
+    if (s.ok) render(s.data);
+    await loadDetail();
+    flash(r.data.error + " The hub has been refreshed; redo the change if it is still needed.", true);
+    return;
+  }
+  renderDetail();
+  flash(r.data.error || "Error " + r.status, true);
+}
+const APP_NAME = { vscode: "VS Code", ghostty: "Ghostty", terminal: "Terminal" };
+function markRunning(sids, url, still) {   // reveal Go to session for the sessions that run now; still(): the same task is shown
+  if (!sids.length) return;
+  api(url + "ids=" + encodeURIComponent(sids.join(","))).then((r) => {
+    if (!r.ok || !still()) return;
+    Object.entries(r.data).forEach(([sid, x]) => document.querySelectorAll("[data-sid='" + sid + "']").forEach((n) => {
+      if (n.classList.contains("goto")) n.hidden = false;
+      else n.textContent = " ● running in " + (APP_NAME[x.app] || "another app") + (x.status === "busy" ? ", working" : "");
+    }));
+  });
+}
+async function gotoSession(sid) {
+  const r = await api("/api/hub/session/focus", { path: detail.path, sid });
+  flash(r.ok ? r.data.message : r.data.error || "Error " + r.status, !r.ok);
+}
+async function tick(op) {   // tick done or reopen, with the board's conflict check and backup
+  if (!detail || busy) { renderDetail(); return; }
+  const it = detail.item, file = detail.file;
+  busy = true;
+  const r = await api("/api/hub/edit", { path: detail.path, id: it.id, expected_line: it.raw, op, args: { note: el("t-done").value } });
+  busy = false;
+  if (r.ok) {
+    el("t-done").value = "";   // saved with the tick
+    render(r.data);
+    await loadDetail();
+    flash((op === "done" ? "Ticked done" : "Reopened") + " in " + file + ".");
+    setSync("saved " + new Date().toLocaleTimeString());
+    return;
+  }
+  if (r.status === 409) {   // the line changed since it was shown: refresh, then let the user redo it if still needed
+    const s = await api("/api/hub");
+    if (s.ok) render(s.data);
+    await loadDetail();
+    flash(r.data.error + " The hub has been refreshed; redo the change if it is still needed.", true);
+    return;
+  }
+  renderDetail();
+  flash(r.data.error || "Error " + r.status, true);
+}
+async function openLink(url) {
+  const r = await api("/api/hub/open", { path: detail.path, url });
+  if (!r.ok) flash(r.data.error || "Could not open the link.", true);
+  else if (r.data.message) flash(r.data.message);   // an app or script: shown in Finder, not run
+}
+const STATUS_NAME = { inprogress: "In progress", waiting: "Waiting", open: "Open" };
+function renderItem(it) {
+  const p = projectFor(detail.path), c = p ? colorOf(p.color, p.index) : PALETTE.blue;
+  const stateBadge = it.done ? h("span", { class: "badge done" }, "Done " + (it.tags.done || ""))
+    : it.ready ? h("span", { class: "badge ready" }, "Ready") : h("span", { class: "badge blocked" }, "Blocked");
+  const who = it.type === "session" ? "hand-off" : it.owner === "me" ? "for you" : it.owner === "claude" ? "Claude's" : it.owner ? "owner: " + it.owner : "";
+  const firstDoc = it.docs[0];
+  return [
+    h("div", { class: "dmeta", title: detail.path }, peTile(p && p.emoji, c, detail.project),
+      [detail.project, it.type, who, it.id, it.section.split(" / ").slice(1).join(" / ")].filter(Boolean).join(" · ")),   // the section, under the tracker's title
+    h("label", { class: "donebox" },
+      Object.assign(h("input", { type: "checkbox", id: "c-done", checked: it.done ? "checked" : false, disabled: it.readonly,
+        title: it.readonly ? "Read-only: tick it in TaskPaper" : it.done ? "Untick to reopen" : it.status === "inprogress" ? "In progress: tick to mark done" : "Tick to mark done",
+        onchange: (e) => tick(e.target.checked ? "done" : "reopen") }),
+        { indeterminate: !it.done && it.status === "inprogress" }),   // in progress: the box shows a dash, as on the board
+      h("h2", {}, it.title)),
+    h("textarea", { id: "t-done", class: "outcome", placeholder: it.done ? "Optional: why it is being reopened (type before unticking)" : "Optional: one-line outcome, saved as a dated note when you tick the box" }),   // under the tick box and the task's name, as on the board
+    h("div", { class: "badges" }, stateBadge,
+      it.status && !it.done && it.status !== "open" ? h("span", { class: "badge" }, STATUS_NAME[it.status] || it.status) : [],
+      it.priority === "high" ? h("span", { class: "badge" }, icon("star", 11, "#3a3a3f"), "High priority") : it.priority ? h("span", { class: "badge" }, it.priority === "low" ? "Low priority" : "Priority " + it.priority) : []),
+    (() => { const n = activityNote(detail.activity); return n ? h("p", { class: n[1] ? "warn" : "muted" }, n[0].charAt(0).toUpperCase() + n[0].slice(1) + (detail.activity.session ? " (session " + detail.activity.session.slice(0, 8) + ")" : "")) : []; })(),
+    h("div", { class: "actions" },
+      firstDoc ? h("button", { class: "primary opendoc", title: (firstDoc.path || firstDoc.hook || firstDoc.file || firstDoc.web) + (firstDoc.hook ? "\nOpens through Hookmark" : ""),
+        onclick: () => openLink(firstDoc.hook || firstDoc.file || firstDoc.web) }, icon("doc", 14, "#ffffff"), "Open " + (firstDoc.name.length > 34 ? firstDoc.name.slice(0, 32) + "…" : firstDoc.name)) : [],
+      h("a", { class: "button board" + (firstDoc ? "" : " primary"), href: detail.url, title: "Open it on its board, to change its status, needs or notes" }, "Open on its board")),
+    checklistBox(it),
+    msgBox(),
+    sessionBox(it),   // its Claude Code session comes before the facts, as on the board
+    h("dl", { class: "facts" },
+      p && p.deadlines.length ? [h("dt", {}, "Deadlines"), h("dd", {}, h("div", { class: "dls" }, p.deadlines.map((d) => deadlineSpan(d, c))))] : [],
+      h("dt", {}, "Needs"), h("dd", {}, it.needs.length ? h("div", { class: "chips" }, it.needs.map((n) => chip(n, "need"))) : h("span", { class: "muted" }, "Nothing")),
+      h("dt", {}, "Needed by"), h("dd", {}, it.needed_by.length ? h("div", { class: "chips" }, it.needed_by.map((n) => chip(n))) : h("span", { class: "muted" }, "Nothing")),
+      h("dt", {}, "Documents"), h("dd", {}, it.docs.length ? h("div", { class: "docs" }, it.docs.map(docRow)) : h("span", { class: "muted" }, "None linked")),
+      h("dt", {}, "Notes"), h("dd", {}, (() => { const ns = it.notes.filter((n) => !BARE_URL.test(n)); return ns.length ? h("div", { class: "notes" }, ns.map(noteLine)) : h("span", { class: "muted" }, "No notes"); })())),
+    it.readonly ? h("p", { class: "warn" }, "This item is read-only on its board (missing or duplicate @id); edit it in TaskPaper.") : [],
+    h("details", { class: "line" }, h("summary", {}, "Line in the file"), h("p", {}, "line " + (it.line + 1) + ": " + it.raw.trim())),
+  ];
+}
+let shownKey = null;   // the task the details column last showed, so a redraw of it keeps a half-typed outcome
+function renderDetail() {
+  const d = el("detail"), box = el("t-done");
+  const typed = box ? box.value : "", hadFocus = box && document.activeElement === box;
+  const key = selected ? selected.path + "#" + selected.id : null, same = key === shownKey;
+  shownKey = detail && !detail.error ? key : null;
+  if (!selected) {
+    d.replaceChildren(h("h2", {}, "Task details"),
+      h("p", { class: "muted" }, "Click a task to see its details here: what it needs and what needs it, its documents, notes and Claude Code sessions. You can tick it done here, open its documents and copy its prompts; to change its status, needs or notes, open it on its board."));   // the heading stays an h2 for the tests and screen readers
+    return;
+  }
+  if (!detail || detail.error) {
+    d.replaceChildren(h("h2", {}, selected.id), h("p", { class: "warn" }, detail ? detail.error : "Loading…"));
+    return;
+  }
+  d.replaceChildren(...[].concat(renderItem(detail.item)).flat(Infinity));
+  const shown = selected.path + "#" + selected.id;
+  markRunning(detail.item.sessionids || [], "/api/hub/sessions/running?path=" + encodeURIComponent(detail.path) + "&", () => selected && selected.path + "#" + selected.id === shown);
+  if (same && typed) { el("t-done").value = typed; if (hadFocus) el("t-done").focus(); }
+}
+
+async function loadDetail() {
+  if (!selected) { detail = null; renderDetail(); return; }
+  const want = selected;
+  const r = await api("/api/hub/item?path=" + encodeURIComponent(want.path) + "&id=" + encodeURIComponent(want.id));
+  if (selected !== want) return;   // another task was clicked meanwhile
+  detail = r.ok ? r.data : { error: r.data.error || "Error " + r.status };
+  renderDetail();
+}
+function select(path, id) {
+  selected = { path, id };
+  detail = null;
+  if (state) { renderTasks(); renderProjects(); }   // highlight it in its list, or on its card if Claude runs it
+  if (view === "progress" && prog) renderProgress();   // highlight its row in the Gantt chart
+  renderDetail();
+  loadDetail();
+}
+
+// ---------------- progress: Gantt chart and activity (progress.py), shown instead of the task lists ----------------
+// Colours: the board's who-acts colours, so a task has one colour everywhere: blue for the user's, purple for
+// a hand-off, Anthropic's clay for Claude's own, grey for another owner or none (WHO_COLOR in index.html). The
+// open-tasks chart uses two neutral inks, so it never borrows a who-acts colour. Text never wears a series colour.
+const GROUP_KEYS = ["me", "handoff", "claude", "other"];
+const GROUP_NAME = { me: "You", handoff: "Hand-offs", claude: "Claude", other: "Other owner or none" };
+const GROUP_COLOR = { me: "#2563eb", handoff: "#a21caf", claude: "#c96442", other: "#8e8e93" };
+const OPEN_KEYS = ["ready", "blocked"], OPEN_NAME = { ready: "Unblocked", blocked: "Blocked" }, OPEN_COLOR = { ready: "#52514e", blocked: "#c3c2b7" };
+const SVG_NS = "http://www.w3.org/2000/svg";
+let view = "tasks", prog = null;
+const pf = { project: "", range: "30", table: false };   // the Progress filters
+try {   // remembered while this hub's server runs (the app gives the hub a new address each launch)
+  const v = JSON.parse(localStorage.getItem("taskflow-hub-view") || "{}");
+  if (v.view === "progress") view = "progress";
+  if (v.pf) Object.assign(pf, v.pf);
+} catch (e) { /* storage unavailable */ }
+function saveView() { try { localStorage.setItem("taskflow-hub-view", JSON.stringify({ view, pf })); } catch (e) { /* storage unavailable */ } }
+function sv(tag, attrs, ...kids) {
+  const n = document.createElementNS(SVG_NS, tag);
+  Object.entries(attrs || {}).forEach(([k, v]) => {
+    if (k.startsWith("on")) n.addEventListener(k.slice(2), v); else if (v != null) n.setAttribute(k, v);
+  });
+  kids.flat(Infinity).forEach((k) => n.append(k instanceof Node ? k : document.createTextNode(String(k))));
+  return n;
+}
+const tip = h("div", { class: "tip", role: "tooltip" });
+document.body.append(tip);
+function showTip(e, lines) {   // lines: [value, label, colour]; values lead, labels follow; set as text, never HTML
+  tip.replaceChildren(...lines.map(([value, label, color]) => h("div", {},
+    color ? h("span", { class: "key", style: "background:" + color }) : [], h("b", {}, value), label ? h("span", { class: "lbl" }, " " + label) : [])));
+  tip.style.display = "block";
+  const r = e.clientX != null && e.type !== "focus" ? { x: e.clientX, y: e.clientY } : (() => { const b = e.target.getBoundingClientRect(); return { x: b.left + 20, y: b.bottom }; })();
+  const w = tip.offsetWidth, ht = tip.offsetHeight;
+  tip.style.left = Math.max(4, Math.min(window.innerWidth - w - 4, r.x + 14)) + "px";
+  tip.style.top = Math.max(4, r.y + 14 + ht > window.innerHeight ? r.y - ht - 10 : r.y + 14) + "px";
+}
+function hideTip() { tip.style.display = "none"; }
+
+function dayOf(str) { const [y, m, d] = str.split("-").map(Number); return new Date(y, m - 1, d); }
+function dayStr(t) { return t.getFullYear() + "-" + String(t.getMonth() + 1).padStart(2, "0") + "-" + String(t.getDate()).padStart(2, "0"); }
+function dayRange(from, to) { const out = []; for (let t = dayOf(from); dayStr(t) <= to; t.setDate(t.getDate() + 1)) out.push(dayStr(t)); return out; }
+const fmtDay = (str) => dayOf(str).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+const fmtTime = (iso) => { const t = new Date(iso); return fmtDay(dayStr(t)) + " " + String(t.getHours()).padStart(2, "0") + ":" + String(t.getMinutes()).padStart(2, "0"); };
+function fmtDur(ms, exact) {
+  const m = ms / 60000, s = m < 90 ? Math.round(m) + " min" : m < 48 * 60 ? (m / 60).toFixed(1) + " h" : (m / 1440).toFixed(1) + " days";
+  return (exact ? "" : "about ") + s;
+}
+function median(xs) { const v = xs.slice().sort((a, b) => a - b), n = v.length; return n ? (n % 2 ? v[(n - 1) / 2] : (v[n / 2 - 1] + v[n / 2]) / 2) : null; }
+
+function progProjects() { const all = el("f-archived").checked; return prog.projects.filter((p) => all || !p.archived); }
+function progBars() {
+  const live = new Set(progProjects().map((p) => p.path));
+  return prog.bars.filter((b) => live.has(b.path) && (!pf.project || b.path === pf.project));
+}
+function progDays(bars) {
+  const today = prog.today;
+  if (pf.range === "all") return dayRange(bars.reduce((m, b) => (b.added_day < m ? b.added_day : m), today), today);
+  const t = dayOf(today);
+  t.setDate(t.getDate() - (Number(pf.range) - 1));
+  return dayRange(dayStr(t), today);
+}
+function dailyCounts(bars, days) {   // per day: added and finished by who acts; open at the end of the day, unblocked or blocked
+  return days.map((d) => {
+    const row = { day: d, added: {}, finished: {}, open: { ready: 0, blocked: 0 } };
+    GROUP_KEYS.forEach((g) => { row.added[g] = 0; row.finished[g] = 0; });
+    bars.forEach((b) => {
+      if (b.added_day === d) row.added[b.group] += 1;
+      if (b.done_day === d) row.finished[b.group] += 1;
+      if (b.added_day <= d && !(b.done_day && b.done_day <= d)) row.open[b.unblocked_day && b.unblocked_day <= d ? "ready" : "blocked"] += 1;
+    });
+    return row;
+  });
+}
+
+function niceTop(max) { const step = [1, 2, 5, 10, 20, 50, 100, 200, 500].find((s) => max / s <= 4) || 1000; return { step, top: Math.max(step, Math.ceil(max / step) * step) }; }
+function topRounded(x, y, w, hgt, r) { r = Math.min(r, w / 2, hgt); return `M${x},${y + hgt}V${y + r}Q${x},${y} ${x + r},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + hgt}Z`; }
+function stackedChart(caption, days, values, keys, colors, names, yMax, width) {
+  const H = 150, ml = 30, mr = 6, mt = 8, mb = 22, pw = width - ml - mr, ph = H - mt - mb;
+  const band = pw / days.length, cw = Math.max(2, Math.min(24, band * 0.66)), { step, top } = niceTop(yMax);
+  const y = (v) => mt + ph - (v / top) * ph;
+  const svg = sv("svg", { width, height: H, role: "img", "aria-label": caption });
+  for (let v = 0; v <= top; v += step) {
+    svg.append(sv("line", { x1: ml, x2: width - mr, y1: y(v), y2: y(v), stroke: v ? "#e1e0d9" : "#c3c2b7", "stroke-width": 1 }),
+      sv("text", { x: ml - 5, y: y(v) + 3.5, "text-anchor": "end", "font-variant-numeric": "tabular-nums" }, v));
+  }
+  const every = Math.ceil(44 / band);
+  days.forEach((d, i) => {
+    const x = ml + i * band + (band - cw) / 2, segs = keys.filter((k) => values[i][k] > 0);
+    let base = 0;
+    segs.forEach((k, j) => {
+      const v = values[i][k], y0 = y(base + v), hgt = y(base) - y0, last = j === segs.length - 1;
+      const gap = j > 0 ? 2 : 0;   // a 2px surface gap between stacked segments
+      svg.append(last ? sv("path", { d: topRounded(x, y0, cw, Math.max(0, hgt - gap), 4), fill: colors[k] })
+        : sv("rect", { x, y: y0, width: cw, height: Math.max(0, hgt - gap), fill: colors[k] }));
+      base += v;
+    });
+    if (i % every === 0) svg.append(sv("text", { x: ml + i * band + band / 2, y: H - 6, "text-anchor": "middle" }, fmtDay(d)));
+    const total = keys.reduce((t, k) => t + values[i][k], 0);
+    const hit = sv("rect", { class: "hit", x: ml + i * band, y: mt, width: band, height: ph, tabindex: 0,
+      onpointermove: (e) => showTip(e, [[fmtDay(d), ""], ...keys.map((k) => [values[i][k], names[k], colors[k]]), [total, "in all"]]),
+      onfocus: (e) => showTip(e, [[fmtDay(d), ""], ...keys.map((k) => [values[i][k], names[k], colors[k]]), [total, "in all"]]),
+      onpointerleave: hideTip, onblur: hideTip });
+    svg.append(hit);
+  });
+  return h("figure", { class: "chart" }, h("figcaption", {}, caption), svg);
+}
+function legendRow(keys, colors, names, extra) {
+  return h("div", { class: "lg" }, keys.map((k) => h("span", {}, h("span", { class: "sw", style: "background:" + colors[k] }), names[k])), extra || []);
+}
+
+function barWhen(b) {   // the dates of one bar, for the tooltip and the table
+  return {
+    added: b.start_exact ? fmtTime(b.start) : fmtDay(b.added_day) + " (date only)",
+    unblocked: b.unblocked ? (b.unblocked_exact ? fmtTime(b.unblocked) : fmtDay(b.unblocked_day) + " (date only)") : (b.state === "blocked" ? "not yet" : "unknown"),
+    done: b.done ? (b.end_exact ? fmtTime(b.end) : fmtDay(b.done_day) + " (date only)") : "open",
+    blockedFor: b.unblocked ? fmtDur(new Date(b.unblocked) - new Date(b.start), b.start_exact && b.unblocked_exact) : b.state === "blocked" ? fmtDur(new Date(prog.now) - new Date(b.start), false) + " so far" : "unknown",
+    waitedFor: b.unblocked ? fmtDur((b.end ? new Date(b.end) : new Date(prog.now)) - new Date(b.unblocked), b.unblocked_exact && (!b.end || b.end_exact)) + (b.end ? "" : " so far") : "",
+  };
+}
+function gantt(bars, days, width) {
+  const sorted = bars.slice().sort((a, b) => a.project.localeCompare(b.project) || a.start.localeCompare(b.start) || a.line - b.line || a.id.localeCompare(b.id));
+  const rows = [];
+  sorted.forEach((b, i) => { if (!pf.project && (i === 0 || sorted[i - 1].project !== b.project)) rows.push({ head: projectEmoji(b.path) + b.project }); rows.push({ b }); });
+  const L = Math.min(260, Math.max(150, width * 0.3)), R = 14, top = 22, rowH = 20, H = top + rows.length * rowH + 6;
+  const t0 = dayOf(days[0]).getTime(), t1 = new Date(prog.now).getTime(), span = Math.max(t1 - t0, 3600e3);
+  const X = (t) => L + Math.max(0, Math.min(1, (t - t0) / span)) * (width - L - R);
+  const svg = sv("svg", { width, height: H, role: "img", "aria-label": "Gantt chart: one bar per task, from added to done" });
+  const every = Math.ceil(44 / ((width - L - R) / days.length)), xn = X(t1);
+  days.forEach((d, i) => {
+    const x = X(dayOf(d).getTime());
+    svg.append(sv("line", { x1: x, x2: x, y1: top - 4, y2: H, stroke: "#e1e0d9", "stroke-width": 1 }));
+    if (i % every === 0 && xn - x > 70) svg.append(sv("text", { x: x + 3, y: 12 }, fmtDay(d)));   // leave room for "now"
+  });
+  svg.append(sv("line", { x1: xn, x2: xn, y1: top - 4, y2: H, stroke: "#898781", "stroke-width": 1 }), sv("text", { x: xn - 2, y: 12, "text-anchor": "end" }, "now"));
+  const maxChars = Math.floor((L - 14) / 6.2);
+  rows.forEach((r, i) => {
+    const y = top + i * rowH;
+    if (r.head) { svg.append(sv("text", { class: "head", x: 4, y: y + 14 }, r.head)); return; }
+    const b = r.b, isSel = selected && selected.path === b.path && selected.id === b.id;
+    if (isSel) svg.append(sv("rect", { class: "rowsel", x: 0, y, width, height: rowH }));
+    const label = b.id + "  " + b.title;
+    svg.append(sv("text", { class: "lab", x: 10, y: y + 14, opacity: b.done ? 0.6 : 1 }, label.length > maxChars ? label.slice(0, maxChars - 1) + "…" : label));
+    const c = GROUP_COLOR[b.group], s = new Date(b.start).getTime(), e = b.end ? new Date(b.end).getTime() : t1;
+    const u = b.unblocked ? new Date(b.unblocked).getTime() : (b.state === "blocked" ? e : null);   // still blocked: all of it is blocked
+    const by = y + 5, bh = 10, xs = X(s), xe = Math.max(X(e), xs + 2);
+    if (u === null) svg.append(sv("rect", { x: xs, y: by, width: xe - xs, height: bh, rx: 3, fill: c, opacity: 0.55 }));   // unknown: neither phase
+    else {
+      const xu = X(u);
+      if (xu - xs >= 1) svg.append(sv("rect", { x: xs, y: by, width: Math.max(1, xu - xs - (xe - xu >= 1 ? 2 : 0)), height: bh, rx: 3, fill: c, opacity: 0.28 }));   // blocked: a wash
+      if (xe - xu >= 1) svg.append(sv("rect", { x: xu, y: by, width: Math.max(2, xe - xu), height: bh, rx: 3, fill: c }));   // unblocked: solid
+      else if (xu - xs < 1) svg.append(sv("rect", { x: xs, y: by, width: 2, height: bh, rx: 1, fill: c }));
+    }
+    const w = barWhen(b), lines = () => [[b.id, b.project], [b.title, ""], [GROUP_NAME[b.group], "acts", c], [w.added, "added"],
+      [w.unblocked, "unblocked"], [w.done, b.done ? "done" : ""], [w.blockedFor, "blocked"], ...(w.waitedFor ? [[w.waitedFor, "waiting on its owner"]] : [])];
+    svg.append(sv("rect", { class: "hit", x: 0, y, width, height: rowH, tabindex: 0, "aria-label": b.id + " " + b.title,
+      onpointermove: (ev) => showTip(ev, lines()), onfocus: (ev) => showTip(ev, lines()), onpointerleave: hideTip, onblur: hideTip,
+      onclick: () => { hideTip(); select(b.path, b.id); }, onkeydown: (ev) => { if (ev.key === "Enter") select(b.path, b.id); } }));
+  });
+  return svg;
+}
+function kpi(label, value, sub) { return h("div", { class: "kpi" }, h("div", { class: "l" }, label), h("div", { class: "v" }, value), h("div", { class: "s" }, sub)); }
+function waitTile(label, bars, groups, from) {   // median time from unblocked to done, exact times only
+  const xs = bars.filter((b) => groups.includes(b.group) && b.done && b.done_day >= from && b.unblocked && b.unblocked_exact && b.end_exact)
+    .map((b) => new Date(b.end) - new Date(b.unblocked));
+  const m = median(xs);
+  return kpi(label, m === null ? "—" : fmtDur(m, true), xs.length ? "median of " + xs.length + " finished task" + (xs.length === 1 ? "" : "s") : "no finished tasks with exact times yet");
+}
+
+// GitHub-style calendars of the tasks finished each day (by @done): the user's (with the hand-offs, as in the user's wait above),
+// Claude's, and all of them. Each is a one-hue ramp in its own colour (the user blue, Claude clay as on the board, all
+// neutral), stepped at the lightness of the reference blue's steps 250/400/550/700 and validated as ordinal ramps on white
+// (2026-10-10); the clay ramp has the blue ramp's CIELAB lightness at each step, in the board's clay hue (2026-10-11).
+// The bins are the same in all three, so one shade means one count everywhere.
+const HEAT = [
+  { name: "You", sub: "your tasks and hand-offs", groups: ["me", "handoff"], ramp: ["#86b6ef", "#3987e5", "#1c5cab", "#0d366b"] },
+  { name: "Claude", sub: "its own tasks", groups: ["claude"], ramp: ["#e7a28b", "#ce6a48", "#974428", "#5d2614"] },
+  { name: "Combined", sub: "every finished task", groups: null, ramp: ["#b3b2af", "#888783", "#5e5d5a", "#383735"] },
+];
+const HEAT_EMPTY = "#f0efec", HEAT_MIN = [1, 3, 6, 10], HEAT_BIN = ["0", "1–2", "3–5", "6–9", "10+"];
+const heatLevel = (n) => HEAT_MIN.filter((m) => n >= m).length;
+const fmtLong = (str) => dayOf(str).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+function heatDays(weeks) {   // whole weeks, Sunday to Saturday as on GitHub, ending with this week (cut at today)
+  const t = dayOf(prog.today);
+  t.setDate(t.getDate() - t.getDay() - (weeks - 1) * 7);
+  return dayRange(dayStr(t), prog.today);
+}
+function finishedOn(bars, groups) {   // day -> the tasks finished that day
+  const on = {};
+  bars.forEach((b) => { if (b.done && (!groups || groups.includes(b.group))) (on[b.done_day] = on[b.done_day] || []).push(b); });
+  return on;
+}
+function streaks(days, on) {   // the longest run of days with a finished task, and the current one (today joins it once it has one)
+  let run = 0, longest = 0, current = 0, i = days.length - 1;
+  days.forEach((d) => { run = on[d] ? run + 1 : 0; longest = Math.max(longest, run); });
+  if (i >= 0 && !on[days[i]]) i -= 1;
+  for (; i >= 0 && on[days[i]]; i -= 1) current += 1;
+  return { longest, current };
+}
+function heatmap(spec, days, on, cell) {
+  const step = cell + 2, L = 28, T = 15, weeks = Math.ceil(days.length / 7);   // a 2px surface gap between cells
+  const svg = sv("svg", { width: L + weeks * step + 24, height: T + 7 * step,   // 24px: room for the last month's name
+    role: "img", "aria-label": spec.name + ": tasks finished per day", onpointerleave: hideTip });
+  ["Mon", "Wed", "Fri"].forEach((t, k) => svg.append(sv("text", { x: 0, y: T + (2 * k + 1) * step + cell - 1 }, t)));
+  const starts = [];   // a month's name over the first week that starts in it; the first column's only if its month has room
+  for (let w = 0; w < weeks; w++) if (!w || dayOf(days[w * 7]).getMonth() !== dayOf(days[(w - 1) * 7]).getMonth()) starts.push(w);
+  starts.filter((w, k) => !(k === 0 && starts.length > 1 && starts[1] - w < 3))
+    .forEach((w) => svg.append(sv("text", { x: L + w * step, y: 10 }, dayOf(days[w * 7]).toLocaleDateString("en-US", { month: "short" }))));
+  days.forEach((d, i) => {
+    const list = on[d] || [], n = list.length, k = heatLevel(n);
+    const split = n && (!spec.groups || spec.groups.length > 1) ? GROUP_KEYS.map((g) => [list.filter((b) => b.group === g).length, GROUP_NAME[g], GROUP_COLOR[g]]).filter((x) => x[0]) : [];
+    const lines = () => [[fmtLong(d), ""], [n, n === 1 ? "task finished" : "tasks finished"], ...split,
+      ...list.slice(0, 6).map((b) => [b.id, b.title + (pf.project ? "" : " · " + b.project)]), ...(n > 6 ? [["+" + (n - 6), "more"]] : [])];
+    svg.append(sv("rect", { class: "cell", x: L + Math.floor(i / 7) * step, y: T + (i % 7) * step, width: cell, height: cell, rx: 2,
+      fill: k ? spec.ramp[k - 1] : HEAT_EMPTY, "data-day": d, "data-n": n, onpointermove: (e) => showTip(e, lines()) }));
+  });
+  return svg;
+}
+function heatBlock(spec, bars, days, cell) {
+  const on = finishedOn(bars, spec.groups), total = days.reduce((t, d) => t + (on[d] ? on[d].length : 0), 0);
+  const s = streaks(days, on), nd = (n) => n + " day" + (n === 1 ? "" : "s");
+  return h("figure", { class: "chart heat" },
+    h("figcaption", {}, h("b", {}, spec.name), h("span", { class: "s" }, spec.sub), h("span", {}, total + " finished"),
+      h("span", { class: "s" }, nd(days.filter((d) => on[d]).length) + " active · current streak " + nd(s.current) + " · longest " + nd(s.longest)),
+      h("div", { class: "lg" }, HEAT_BIN.map((t, k) => h("span", {}, h("span", { class: "sw", style: "background:" + (k ? spec.ramp[k - 1] : HEAT_EMPTY) }), t)))),
+    heatmap(spec, days, on, cell));
+}
+function renderProgress() {
+  const p = el("progress");
+  if (!prog) { p.replaceChildren(h("h2", {}, "Progress"), h("p", { class: "muted" }, "Loading…")); return; }
+  const projs = progProjects();
+  if (pf.project && !projs.some((x) => x.path === pf.project)) pf.project = "";
+  const bars = progBars(), days = progDays(bars), from = days[0], counts = dailyCounts(bars, days);
+  const shown = bars.filter((b) => !b.done_day || b.done_day >= from);
+  const width = Math.max(320, p.clientWidth - 30);
+  const open = bars.filter((b) => !b.done), sum = (f) => counts.reduce((t, r) => t + f(r), 0);
+  const added = sum((r) => GROUP_KEYS.reduce((t, g) => t + r.added[g], 0)), finished = sum((r) => GROUP_KEYS.reduce((t, g) => t + r.finished[g], 0));
+  const keys = GROUP_KEYS.filter((g) => g !== "other" || bars.some((b) => b.group === "other"));
+  const projSel = h("select", { onchange: (e) => { pf.project = e.target.value; saveView(); renderProgress(); } },
+    h("option", { value: "" }, "All projects"), projs.map((x) => h("option", { value: x.path, selected: x.path === pf.project ? "selected" : false }, projectEmoji(x.path) + x.name + (x.archived ? " (archived)" : ""))));
+  const rangeSel = h("select", { onchange: (e) => { pf.range = e.target.value; saveView(); renderProgress(); } },
+    [["7", "Last 7 days"], ["30", "Last 30 days"], ["90", "Last 90 days"], ["all", "All time"]].map(([v, t]) => h("option", { value: v, selected: v === pf.range ? "selected" : false }, t)));
+  const tableBtn = h("button", { onclick: () => { pf.table = !pf.table; saveView(); renderProgress(); } }, pf.table ? "Show charts" : "Show as tables");
+  const undated = prog.undated.filter((u) => projs.some((x) => x.path === u.path) && (!pf.project || u.path === pf.project));
+  const unreadable = prog.unreadable.filter((u) => projs.some((x) => x.path === u.path) && (!pf.project || u.path === pf.project));
+  const parts = [
+    h("div", { class: "pfilters" }, h("label", {}, "project ", projSel), h("label", {}, "range ", rangeSel), tableBtn),
+    h("div", { class: "kpis" },
+      kpi("Open now", open.length, open.filter((b) => b.state === "ready").length + " unblocked · " + open.filter((b) => b.state === "blocked").length + " blocked"),
+      kpi("Added", added, "in the range"), kpi("Finished", finished, "in the range"),
+      waitTile("Wait once unblocked: you", bars, ["me", "handoff"], from), waitTile("Wait once unblocked: Claude", bars, ["claude"], from)),
+  ];
+  // the calendars: up to 53 whole weeks (fewer when the column is too narrow for 7px cells); the range menu does not apply
+  const weeks = Math.max(4, Math.min(53, Math.floor((width - 52) / 9))), cell = Math.max(7, Math.min(12, Math.floor((width - 52) / weeks) - 2));
+  const hdays = heatDays(weeks);
+  parts.push(h("h3", {}, "Finished per day, " + (weeks === 53 ? "past year" : "past " + weeks + " weeks")),
+    h("p", { class: "muted", style: "margin:0 0 8px" }, "Tasks ticked done each day, by their @done date, in weeks from Sunday to Saturday up to today; the range menu does not change these. Hover a day to see its tasks."));
+  if (pf.table) {
+    const ons = HEAT.map((s) => finishedOn(bars, s.groups)), any = hdays.filter((d) => ons[2][d]).reverse();   // ons[2]: Combined
+    parts.push(any.length ? h("table", { class: "ptable" },
+      h("tr", {}, h("th", {}, "Day"), HEAT.map((s) => h("th", {}, s.name))),
+      any.map((d) => h("tr", {}, h("td", {}, fmtLong(d)), ons.map((on) => h("td", { class: "n" }, on[d] ? on[d].length : 0)))))
+      : h("p", { class: "muted" }, "No tasks finished in these weeks."));
+    parts.push(h("h3", {}, "Per day"), h("table", { class: "ptable" },
+      h("tr", {}, h("th", {}, "Day"), keys.map((g) => h("th", {}, "added: " + GROUP_NAME[g])), keys.map((g) => h("th", {}, "finished: " + GROUP_NAME[g])), h("th", {}, "open, unblocked"), h("th", {}, "open, blocked")),
+      counts.slice().reverse().map((r) => h("tr", {}, h("td", {}, fmtDay(r.day)), keys.map((g) => h("td", { class: "n" }, r.added[g])), keys.map((g) => h("td", { class: "n" }, r.finished[g])),
+        h("td", { class: "n" }, r.open.ready), h("td", { class: "n" }, r.open.blocked)))),
+      h("h3", {}, "Tasks (" + shown.length + ")"), h("table", { class: "ptable" },
+      h("tr", {}, ["Project", "Task", "Acts", "Added", "Unblocked", "Done", "Blocked for", "Waiting on its owner"].map((t) => h("th", {}, t))),
+      shown.slice().sort((a, b) => a.project.localeCompare(b.project) || a.start.localeCompare(b.start)).map((b) => {
+        const w = barWhen(b);
+        return h("tr", { style: "cursor:pointer", onclick: () => select(b.path, b.id) }, h("td", {}, b.project), h("td", {}, b.id + " " + b.title), h("td", {}, GROUP_NAME[b.group]),
+          h("td", {}, w.added), h("td", {}, w.unblocked), h("td", {}, w.done), h("td", {}, w.blockedFor), h("td", {}, w.waitedFor));
+      })));
+  } else {
+    const yMax = Math.max(1, ...counts.map((r) => Math.max(GROUP_KEYS.reduce((t, g) => t + r.added[g], 0), GROUP_KEYS.reduce((t, g) => t + r.finished[g], 0))));
+    const half = width >= 700 ? Math.floor((width - 22) / 2) : width;
+    parts.push(...HEAT.map((s) => heatBlock(s, bars, hdays, cell)));
+    parts.push(h("h3", {}, "Added and finished per day"), legendRow(keys, GROUP_COLOR, GROUP_NAME),
+      h("div", { class: "multiples" },
+        stackedChart("Added", days, counts.map((r) => r.added), keys, GROUP_COLOR, GROUP_NAME, yMax, half),
+        stackedChart("Finished", days, counts.map((r) => r.finished), keys, GROUP_COLOR, GROUP_NAME, yMax, half)),
+      h("h3", {}, "Open at the end of each day"), legendRow(OPEN_KEYS, OPEN_COLOR, OPEN_NAME),
+      stackedChart("", days, counts.map((r) => r.open), OPEN_KEYS, OPEN_COLOR, OPEN_NAME, Math.max(1, ...counts.map((r) => r.open.ready + r.open.blocked)), width),
+      h("h3", {}, "Gantt chart (" + shown.length + " tasks)"),
+      legendRow(keys, GROUP_COLOR, GROUP_NAME, [
+        h("span", {}, h("span", { class: "sw", style: "background:#52514e;opacity:.28" }), "blocked: waiting for a prerequisite"),
+        h("span", {}, h("span", { class: "sw", style: "background:#52514e" }), "unblocked: until it is done, or now")]),
+      shown.length ? gantt(shown, days, width) : h("p", { class: "muted" }, "No tasks in this range."));
+  }
+  parts.push(h("p", { class: "muted" }, "Each bar runs from @added to @done (open tasks run to now). A task is unblocked when the last of its prerequisites was done. Times are recorded from Oct 10, 2026; earlier dates are day-only, so those bars and waits are approximate. Click a task to see its details on the right."));
+  if (undated.length) parts.push(h("p", { class: "warn" }, "Not drawn: " + undated.length + " item" + (undated.length === 1 ? "" : "s") + " without @added: " + undated.map((u) => u.id + " (" + u.project + ")").join(", ") + ". Add @added where the date is known."));
+  if (unreadable.length) parts.push(h("p", { class: "warn" }, "Not drawn: unreadable dates in " + unreadable.map((u) => u.id + " (" + u.project + ": @added(" + u.added + ")" + (u.done ? " @done(" + u.done + ")" : "") + ")").join(", ") + "."));
+  p.replaceChildren(h("h2", {}, "Progress"), ...parts);
+}
+async function loadProgress() {
+  const r = await api("/api/hub/progress");
+  if (r.ok) prog = r.data;
+  else if (!prog) {
+    const stale = r.status === 404;   // the page is newer than the hub's server, which started before Progress existed
+    el("progress").replaceChildren(h("h2", {}, "Progress"), h("p", { class: "warn" }, stale
+      ? "The hub's server is older than this page and has no Progress data. Close the hub window and open it again (Window › Hub, ⇧⌘H), or quit and reopen Taskflow."
+      : r.data.error || "Could not load the progress data."));
+    return;
+  }
+  renderProgress();   // a failed refresh keeps the previous render
+}
+function setView(v) {
+  view = v;
+  el("main").classList.toggle("pv", v === "progress");
+  el("b-progress").setAttribute("aria-pressed", v === "progress" ? "true" : "false");
+  el("b-tasks").setAttribute("aria-pressed", v === "progress" ? "false" : "true");
+  saveView();
+  if (v === "progress") { renderProgress(); loadProgress(); }
+}
+el("b-progress").addEventListener("click", () => setView(view === "progress" ? "tasks" : "progress"));   // a second click goes back
+el("b-tasks").addEventListener("click", () => setView("tasks"));
+let resizeTimer = null;
+window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (view === "progress" && prog) renderProgress(); }, 150); });
+
+// ---------------- loading ----------------
+function render(st) {
+  state = st;
+  state.projects.forEach((p) => { if (!p.deadlines) p.deadlines = []; });   // from a hub server older than deadlines
+  const typingDate = dlEdit && document.activeElement && document.activeElement.closest && document.activeElement.closest(".dled");
+  if (!typingDate) renderProjects();   // a redraw would lose the place in a date being typed; Save and Cancel redraw the cards
+  renderTasks();
+}
+async function setArchived(path, archived) {
+  if (busy) return;
+  busy = true;
+  const r = await api("/api/hub/archive", { path, archived });
+  busy = false;
+  if (r.ok) { render(r.data); setSync("saved " + new Date().toLocaleTimeString()); }
+  else flashProjects(r.data.error || "Error " + r.status);
+}
+function setSync(t) { el("sync").textContent = t; el("sync").classList.toggle("off", /not reachable/.test(t)); }
+async function poll() {
+  const r = await api("/api/hub/version");
+  if (!r.ok) { setSync("server not reachable"); return; }
+  if (r.data.hash !== hash || Date.now() - lastFull > 60000) {   // also once a minute, for the session activity times
+    const changed = r.data.hash !== hash, s = await api("/api/hub");
+    if (s.ok) { hash = r.data.hash; lastFull = Date.now(); render(s.data); loadDetail(); if (view === "progress") loadProgress(); setSync((changed ? "updated " : "in sync ") + new Date().toLocaleTimeString()); }
+  } else setSync("in sync " + new Date().toLocaleTimeString());
+}
+el("f-archived").addEventListener("change", () => { if (state) renderProjects(); if (view === "progress" && prog) renderProgress(); });
+
+(async function start() {
+  renderDetail();
+  const v = await api("/api/hub/version"), s = await api("/api/hub");
+  if (!s.ok) { el("projects").textContent = s.data.error || "Could not load the hub."; return; }
+  await loadFolded();
+  hash = v.ok ? v.data.hash : null;
+  lastFull = Date.now();
+  render(s.data);
+  setView(view);
+  setSync("loaded " + new Date().toLocaleTimeString());
+  const g = s.data.groups;
+  if (NATIVE) NATIVE.postMessage({ kind: "loaded", projects: s.data.projects.filter((p) => !p.archived).length,
+    me: g.me.length, handoffs: g.handoff.length, claude: g.claude.length, other: g.other.length });
+  setInterval(poll, POLL_MS);
+})();
+</script>
+</body>
+</html>

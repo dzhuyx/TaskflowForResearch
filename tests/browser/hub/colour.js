@@ -1,0 +1,24 @@
+const out = {}, check = (name, ok, detail) => { out[name] = ok ? "PASS" : "FAIL " + JSON.stringify(detail); };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const until = async (f, ms) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await sleep(100); return f(); };
+const errors = []; window.addEventListener("error", (e) => errors.push(e.message));
+await until(() => document.querySelectorAll("#tasks .todo div").length, 4000);
+const card = (n) => [...document.querySelectorAll("#projects .project")].find((c) => c.querySelector(".name").textContent === n);
+const tint = (n) => getComputedStyle(card(n).querySelector("button.pemoji")).backgroundColor;
+const proj = (n) => state.projects.find((p) => p.name === n);
+check("01 each project has its own colour from the start", proj("Alpha project").color === "blue" && proj("Beta project").color === "purple" && new Set(state.projects.map((p) => p.color)).size === state.projects.length, state.projects.map((p) => p.color));
+card("Alpha project").querySelector("button.colbtn").click();
+const ed = () => card("Alpha project").querySelector(".colored");
+const sw = (k) => [...ed().querySelectorAll("button.sw")].find((b) => b.getAttribute("aria-label").startsWith(k));
+check("02 ⋯ › Colour… shows eight swatches: its own pressed, the others' not offered", ed() && ed().querySelectorAll("button.sw").length === 8 && sw("blue").getAttribute("aria-pressed") === "true" && sw("purple").disabled && sw("purple").getAttribute("aria-label") === "purple, used by Beta project" && !sw("teal").disabled, ed() && [...ed().querySelectorAll("button.sw")].map((b) => b.getAttribute("aria-label") + (b.disabled ? "×" : "")));
+sw("teal").click();
+await until(() => proj("Alpha project").color === "teal", 3000);
+check("03 picking one recolours the project's bar, its tasks and its pills, and closes the picker", proj("Alpha project").color === "teal" && !ed() && getComputedStyle(card("Alpha project").querySelector(".pbar .fill")).backgroundColor === "rgb(15, 118, 110)"
+  && [...document.querySelectorAll("#tasks .todo div")].filter((r) => r.querySelector(".p").textContent === "Alpha project").every((r) => getComputedStyle(r.querySelector(".pe")).backgroundColor === "rgb(226, 243, 241)"), [proj("Alpha project").color, getComputedStyle(card("Alpha project").querySelector(".pbar .fill")).backgroundColor]);
+check("04 the other projects keep theirs", proj("Beta project").color === "purple", proj("Beta project").color);
+card("Alpha project").querySelector("button.colbtn").click();
+[...ed().querySelectorAll(".row button")].find((b) => b.textContent === "Automatic").click();
+await until(() => proj("Alpha project").color === "blue", 3000);
+check("05 Automatic gives back the first free colour", proj("Alpha project").color === "blue" && !proj("Alpha project").color_chosen, [proj("Alpha project").color, proj("Alpha project").color_chosen]);
+check("06 no page errors", errors.length === 0, errors);
+return JSON.stringify(out, null, 1);

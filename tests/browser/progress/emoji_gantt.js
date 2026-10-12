@@ -1,0 +1,12 @@
+const out = {}, check = (name, ok, detail) => { out[name] = ok ? "PASS" : "FAIL " + JSON.stringify(detail); };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const until = async (f, ms) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await sleep(100); return f(); };
+await until(() => state, 4000);
+const r = await api("/api/hub/emoji", { path: state.projects[0].path, emoji: "🧪" });
+render(r.data);
+document.getElementById("b-progress").click();
+await until(() => document.querySelector("#progress svg text.head"), 4000);
+const range = document.querySelectorAll(".pfilters select")[1]; range.value = "all"; range.dispatchEvent(new Event("change"));
+const head = document.querySelector("#progress svg text.head").textContent;
+check("01 the Gantt chart's project heading carries the emoji", r.ok && head === "🧪 P", [r.status, head]);
+return JSON.stringify(out, null, 1);

@@ -1,0 +1,5 @@
+Box test:
+	- Open one @type(review) @owner(me) @id(bx.1)
+	- Running one @type(work) @owner(claude) @status(inprogress) @id(bx.2)
+	- Finished one @type(work) @owner(claude) @id(bx.3) @done(2026-10-01)
+	- No id here @type(work) @owner(me) @status(inprogress)

@@ -1,0 +1,10 @@
+const out = {}, check = (name, ok, detail) => { out[name] = ok ? "PASS" : "FAIL " + JSON.stringify(detail); };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const until = async (f, ms) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await sleep(100); return f(); };
+const det = () => document.getElementById("detail");
+const rowOf = (id) => [...document.querySelectorAll("#tasks .todo div, #projects .running div")].find((r) => r.querySelector(".id").textContent === id);
+await until(() => rowOf("de.1"), 6000);
+rowOf("de.1").click(); await until(() => det().querySelector("h2") && det().querySelector("h2").textContent === "Quiet run", 3000);
+const s = det().querySelector(".sessionbox"), f = det().querySelector("dl.facts");
+check("01 the hub's details put the Claude session above the facts", !!s && !!f && !!(s.compareDocumentPosition(f) & Node.DOCUMENT_POSITION_FOLLOWING), [!!s, !!f]);
+return JSON.stringify(out, null, 1);

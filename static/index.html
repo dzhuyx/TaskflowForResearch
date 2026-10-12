@@ -1,0 +1,1339 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Taskflow board</title>
+<style>
+  /* Calendar-app look, as the hub: the project's emoji and name as the title, white cards with a bar for who acts, rounded pills */
+  :root {
+    --bg: #ffffff; --ink: #1d1d1f; --muted: #55555a; --faint: #636366; --line: #e5e5ea; --line2: #dcdce1; --panel: #f5f5f7; --soft: #fafafb;
+    --accent: #1d63ed; --ok: #1a7f4b; --okink: #13663b; --bad: #c62828; --badink: #a12b2b; --warn: #8a3b00; --warnbg: #fff4e8; --warnline: #f0c99a;
+    --donebg: #f4f4f6;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }   /* hidden wins over any display rule (Go to session's button) */
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--ink);
+    font: 13px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif; }
+  #app { display: grid; grid-template-rows: auto auto 1fr; height: 100vh; }
+  header { display: flex; flex-wrap: wrap; gap: 12px 16px; align-items: center; padding: 14px 20px 10px; background: #fbfbfc; }
+  .ptitle { display: flex; align-items: center; gap: 12px; min-width: 0; flex-wrap: wrap; }
+  .ptile { flex: none; width: 42px; height: 42px; border-radius: 11px; display: flex; align-items: center; justify-content: center; font-size: 22px; background: #e9f0fe; }
+  .ptile .dot { width: 12px; height: 12px; border-radius: 50%; }
+  .ptext { display: flex; flex-direction: column; min-width: 0; }
+  .ptext { gap: 2px; }
+  header h1 { font-size: 22px; margin: 0; font-weight: 700; letter-spacing: -.015em; line-height: 1.2; }
+  .psub { font-size: 12px; color: var(--faint); }
+  .dls { display: flex; flex-wrap: wrap; gap: 6px; }
+  .dl { display: inline-flex; align-items: center; gap: 0 4px; min-height: 26px; padding: 1px 11px; border-radius: 13px; font-size: 12px; font-weight: 600; }
+  .dl.soft { border: 1.5px dashed currentColor; }
+  .dl.hard { color: #fff; }
+  .dl.passed.hard { background: var(--bad) !important; }
+  .dl.passed.soft { background: var(--warnbg) !important; color: var(--warn) !important; }
+  .dl .what { font-weight: 500; }
+  #sync { margin-left: auto; color: var(--muted); font-size: 12px; display: inline-flex; align-items: center; gap: 6px; }
+  #sync::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+  #sync.off::before { background: var(--bad); }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding: 4px 20px 12px; background: #fbfbfc; border-bottom: 1px solid var(--line); }
+  header button, .toolbar button, details.filters > summary { min-height: 40px; border-radius: 10px; font-size: 13px; padding: 0 14px; }
+  select, input, textarea, button { font: inherit; }
+  button { font-size: 12.5px; font-weight: 600; border: 1px solid var(--line2); background: #fff; color: var(--ink); border-radius: 9px; padding: 4px 12px;
+    min-height: 32px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+  button:hover { border-color: #b4b4bb; }
+  button:focus-visible, summary:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button.danger { color: var(--badink); }
+  button:disabled { opacity: .5; cursor: default; }
+  svg.i { flex: none; }
+  .nav { display: inline-flex; gap: 4px; align-items: center; }
+  #b-active .n { color: var(--muted); }
+  #nav-pos { color: var(--muted); font-size: 12px; min-width: 3em; }
+  #b-prev { width: 40px; padding: 0; }
+  .search { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px; border: 1px solid var(--line2); border-radius: 10px; background: #fff; flex: 0 1 260px; min-width: 160px; }
+  .search input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; font-size: 13px; }
+  .toolbar .seg { border-radius: 10px; }
+  .toolbar .seg button { min-height: 34px; border-radius: 8px; padding: 0 12px; font-size: 12.5px; white-space: nowrap; }
+  details.filters { position: relative; }
+  details.filters > summary { list-style: none; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line2); background: #fff; font-weight: 600; cursor: pointer; }
+  details.filters > summary::-webkit-details-marker { display: none; }
+  details.filters[open] > summary, details.filters.on > summary { background: #eef3fe; border-color: #bfd3fb; }
+  #fcount { color: var(--accent); }
+  details.filters .menu { position: absolute; left: 0; top: calc(100% + 4px); z-index: 30; padding: 12px; background: #fff; border: 1px solid var(--line2); border-radius: 12px;
+    box-shadow: 0 10px 28px rgba(0,0,0,.14); display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 10px; align-items: center; min-width: 300px; }
+  details.filters label { color: var(--muted); font-size: 12px; }
+  details.filters select { min-height: 30px; border: 1px solid var(--line2); border-radius: 8px; padding: 0 6px; background: #fff; max-width: 260px; }
+  .tools { display: inline-flex; gap: 4px; margin-left: auto; }
+  .tools button { width: 40px; padding: 0; }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 390px; min-height: 0; overflow: hidden; }
+  main > * { min-width: 0; }
+  .boardcol { display: flex; flex-direction: column; min-height: 0; background: var(--soft); }
+  #cy { flex: 1; min-height: 0; cursor: grab; background-color: var(--soft); }
+  .legendbar { display: flex; flex-direction: column; gap: 8px; padding: 10px 20px; border-top: 1px solid var(--line); background: #fff; font-size: 12px; color: #3a3a3f; }
+  .legendbar .lrow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+  .legendbar .lrow > b { font-weight: 600; color: var(--ink); }
+  .legendbar .lrow > b.gap { margin-left: 6px; }
+  .legendbar span { display: inline-flex; align-items: center; gap: 6px; }
+  .legendbar .k { flex: none; width: 18px; height: 12px; border-radius: 3px; }
+  .legendbar .k:has(i) { box-sizing: border-box; overflow: hidden; display: flex; background: #fff; }
+  .legendbar .k i { display: block; width: 6px; align-self: stretch; }   /* the sample's bar, its full height */
+  .legendbar .k.dchip { height: 9px; }   /* not .chip: that is the panel's chips */
+  .legendbar .k.foot { flex-direction: column; justify-content: flex-end; }
+  .legendbar .k.foot i { width: auto; height: 4px; }
+  aside { border-left: 1px solid var(--line); background: #fff; overflow-y: auto; padding: 18px 20px 28px; }
+  aside h2 { font-size: 19px; margin: 0; line-height: 1.3; letter-spacing: -.01em; }
+  aside h3 { font-size: 12px; font-weight: 600; color: var(--muted); margin: 18px 0 8px; }
+  .dmeta { font-size: 12px; color: var(--muted); }
+  .badges { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+  .badge { display: inline-flex; align-items: center; gap: 4px; min-height: 24px; padding: 0 10px; border-radius: 12px; background: var(--donebg); color: #3a3a3f; font-size: 11.5px; font-weight: 600; }
+  .badge.ready { background: #fff; color: var(--okink); border: 1.5px solid var(--ok); }
+  .badge.blocked { background: #fff; color: var(--badink); border: 1.5px solid var(--bad); }
+  .badge.done { color: var(--muted); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .chip { display: inline-flex; align-items: center; gap: 5px; min-height: 28px; padding: 0 10px; border-radius: 14px; border: 1px solid var(--line2); background: #fff; font-size: 12px; cursor: pointer; }
+  .chip.done { background: var(--donebg); border-color: transparent; color: var(--muted); }
+  .chip.unmet { border-color: var(--bad); color: var(--badink); }
+  .chip button.x { min-height: 20px; width: 20px; padding: 0; border: 0; border-radius: 10px; background: transparent; margin-right: -6px; }
+  .chip button.x:hover { background: #ededf0; }
+  input.addneed { width: 96px; min-height: 28px; padding: 0 10px; border: 1px dashed #c7c7cc; border-radius: 14px; font-size: 12px; }
+  .notes p { margin: 0 0 6px; word-break: break-word; color: #3a3a3f; }
+  .notes a.link, .doc a, a.link { color: var(--accent); cursor: pointer; text-decoration: none; word-break: break-all; font-weight: 500; }
+  .notes a.link:hover, .doc a:hover, a.link:hover { text-decoration: underline; }
+  .row { display: flex; gap: 8px; align-items: center; margin: 6px 0; flex-wrap: wrap; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+  .actions button { min-height: 44px; padding: 0 16px; font-size: 13px; border-radius: 11px; }
+  textarea { width: 100%; min-height: 48px; resize: vertical; border: 1px solid var(--line2); border-radius: 11px; padding: 8px 10px; font-size: 12.5px; }
+  input[type=text] { flex: 1; min-width: 120px; border: 1px solid var(--line2); border-radius: 8px; padding: 4px 8px; }
+  .muted { color: var(--faint); }
+  .msg { margin: 8px 0; padding: 7px 10px; border-radius: 10px; background: #e7f4ec; color: var(--okink); display: none; }
+  .msg.err { background: #fdeceb; color: var(--badink); }
+  .warn { color: var(--warn); margin: 4px 0; }
+  .seg { display: flex; gap: 2px; padding: 3px; background: #ededf0; border-radius: 11px; }
+  .seg button { flex: 1; border: 0; background: transparent; color: #3a3a3f; border-radius: 9px; min-height: 38px; }
+  .seg button[aria-pressed="true"] { background: #fff; color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+  dl.facts { margin: 14px 0 0; padding-top: 14px; border-top: 1px solid #ececf0; display: grid; grid-template-columns: 86px minmax(0, 1fr); gap: 12px; font-size: 13px; line-height: 1.4; }
+  dl.facts dt { color: var(--faint); }
+  dl.facts dd { margin: 0; min-width: 0; }
+  .legend { display: grid; grid-template-columns: 26px 1fr; gap: 6px 8px; align-items: center; font-size: 12px; color: #3a3a3f; }
+  .sw { width: 22px; height: 14px; border-radius: 5px; border: 1px solid #d9d9de; background: #fff; }
+  .donebox { display: flex; gap: 12px; align-items: flex-start; cursor: pointer; margin: 10px 0 8px; }
+  .donebox input { width: 22px; height: 22px; margin: 2px 0 0; accent-color: var(--ok); flex: none; cursor: pointer; }
+  .donebox h2 { margin: 0; }
+  .donebox + textarea.outcome { display: block; width: calc(100% - 34px); margin: -2px 0 10px 34px; }   /* under the task's name, lined up with it */
+  .docs { display: flex; flex-direction: column; gap: 6px; }
+  .doc { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+  .tiny { font-size: 11px; padding: 0 6px; border-radius: 8px; border: 1px solid var(--line2); color: var(--muted); }
+  .tiny.bad { color: var(--badink); border-color: var(--bad); }
+  .sessionbox { background: var(--soft); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; margin: 14px 0 0; display: flex; flex-direction: column; gap: 6px; }
+  .sessionbox .live { color: var(--okink); font-size: 12px; font-weight: 600; }
+  .sessionbox .shead { font-size: 12px; font-weight: 600; color: var(--muted); }
+  .steps { display: inline-flex; align-items: center; gap: 3px; font-weight: 600; } .steps.all { color: var(--okink); }
+  .checklist { border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px 8px; margin: 14px 0 0; }
+  .checklist .chead { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; color: var(--muted); }
+  .checklist .chead b { color: var(--ink); font-size: 13px; }
+  .checklist .cbar { height: 4px; border-radius: 2px; background: #ececf0; margin: 8px 0 4px; overflow: hidden; }
+  .checklist .cbar i { display: block; height: 100%; background: var(--ok); }
+  .checklist .step { display: flex; gap: 10px; align-items: flex-start; padding: 6px 0; font-size: 13px; line-height: 1.4; cursor: pointer; }
+  .checklist .step input { flex: none; width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--ok); cursor: pointer; }
+  .checklist .step.done span { color: var(--muted); text-decoration: line-through; }
+  .checklist .steprow { display: flex; align-items: flex-start; gap: 4px; }
+  .checklist .steprow .step { flex: 1; min-width: 0; }
+  .checklist .steprow .x { flex: none; width: 26px; height: 26px; margin-top: 3px; border: 0; border-radius: 13px; background: transparent; color: var(--faint); font-size: 16px; line-height: 1; cursor: pointer; opacity: 0; }
+  .checklist .steprow:hover .x, .checklist .steprow .x:focus { opacity: 1; }
+  .checklist .steprow .x:hover { background: #ececf0; color: var(--ink); }
+  .checklist .addstep { width: 100%; min-height: 34px; margin: 6px 0 4px; padding: 0 10px; border: 1px dashed var(--line2); border-radius: 9px; font: inherit; font-size: 13px; background: #fff; }
+  .checklist.empty { padding-bottom: 10px; }
+  .runbox { background: #fcf5f1; border: 1px solid #f1ddd1; border-radius: 14px; padding: 12px 14px; margin: 14px 0 0; }
+  .runbox.quiet { background: #fff6ea; border-color: #f0c99a; }
+  .runbox .shead { font-size: 12px; font-weight: 600; color: #8a3b1f; margin-bottom: 6px; }
+  .runbox dl { margin: 0; display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 6px 10px; font-size: 13px; line-height: 1.4; }
+  .runbox dt { color: var(--faint); } .runbox dd { margin: 0; } .runbox dd.look { color: var(--warn); font-weight: 600; }
+  .sessionbox code { font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; word-break: break-all; }
+  details.line { margin-top: 14px; font-size: 12px; color: var(--muted); }
+  details.line summary { cursor: pointer; }
+  details.line p { margin: 6px 0 0; font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; line-height: 1.5; word-break: break-all; color: #3a3a3f; }
+  .counts { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; font-size: 12.5px; color: #3a3a3f; }
+  .todo { display: flex; flex-direction: column; gap: 6px; }
+  .todo div { display: flex; gap: 10px; align-items: flex-start; padding: 9px 11px; border: 1px solid #ececf0; border-radius: 12px; background: #fff; cursor: pointer; }
+  .todo div:hover { border-color: #b4b4bb; }
+  .todo .k { flex: none; width: 16px; padding-top: 2px; font-size: 12px; color: var(--muted); text-align: right; }
+  .todo .rm { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+  .todo .l1 { font-size: 13px; line-height: 1.35; overflow-wrap: anywhere; }
+  .todo .l1 .id { color: var(--faint); margin-right: 4px; }
+  .todo .l2 { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 11.5px; color: var(--muted); }
+  .todo .l2 .ic { display: inline-flex; align-items: center; gap: 4px; }
+  .pill { display: inline-flex; align-items: center; min-height: 20px; padding: 0 8px; border-radius: 10px; font-size: 11px; font-weight: 600; border: 1px solid #d7d7dc; color: #3a3a3f; background: #fff; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="ptitle">
+      <span id="ptile" class="ptile" aria-hidden="true"></span>
+      <div class="ptext"><h1 id="title">Taskflow</h1><span id="psub" class="psub"></span></div>
+      <span id="pdls" class="dls" aria-label="Deadlines"></span>
+    </div>
+    <span id="sync">connecting…</span>
+    <button id="b-hooks" title="Add a Hookmark (hook://) line under every file:// line that lacks one" style="display:none">Add Hookmark links</button>
+    <button id="b-tracker" title="Open the tracker file in its default app">Open tracker</button>
+  </header>
+  <div class="toolbar">
+    <span class="nav">
+      <button id="b-active" title="Zoom to show every task for you: yours (@owner(me)), not done, every prerequisite done. Key: a">For you</button>
+      <button id="b-prev" aria-label="Previous task for you" title="Previous task for you. Key: p">&#x2039;</button>
+      <button id="b-next" class="primary" title="Next task for you, highest ranked first: high priority first and low last; then, within each priority, how much finishing it frees Claude to work (each Claude task waiting on it counts 1, shared among everything that task still waits for; a hand-off counts half; not for a task you are waiting on); waiting after the rest; then tasks whose finishing starts one of Claude's own tasks, then a hand-off, then anything else, then nothing; then more items downstream; then in progress before open; then left to right on the board. Key: n">Next &#x203A;</button>
+      <span id="nav-pos"></span>
+    </span>
+    <div class="search"><svg class="i" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" fill="none" stroke="#636366" stroke-width="1.6"/><path d="M10.5 10.5L14 14" stroke="#636366" stroke-width="1.6" stroke-linecap="round"/></svg><input id="f-search" type="search" placeholder="Search id, title, notes" aria-label="Search this board"></div>
+    <div class="seg" role="group" aria-label="Show">
+      <button id="v-open" aria-pressed="true" title="The tasks not done yet">All open</button>
+      <button id="v-ready" aria-pressed="false" title="Only the tasks whose prerequisites are all done">Ready only</button>
+      <button id="v-done" aria-pressed="false" title="Done tasks too">With done</button>
+    </div>
+    <input id="f-ready" type="checkbox" hidden><input id="f-done" type="checkbox" hidden>
+    <details class="filters" id="filters">
+      <summary title="Show only one owner's, one type's or one session's tasks">Filters <span id="fcount"></span></summary>
+      <div class="menu">
+        <label for="f-owner">Owner</label><select id="f-owner"><option value="">all</option><option value="me">You</option><option value="claude">Claude</option></select>
+        <label for="f-type">Type</label><select id="f-type"><option value="">all</option><option value="review">review</option><option value="work">work package</option><option value="session">session hand-off</option><option value="action">action</option></select>
+        <label for="f-session">Session</label><select id="f-session" title="Show the items that come from one Claude Code session (@sessionid)"><option value="">all</option></select>
+      </div>
+    </details>
+    <span class="tools">
+      <button id="b-layout" aria-label="Re-layout" title="Re-layout: arrange the visible boxes afresh"><svg class="i" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><g fill="none" stroke="#3a3a3f" stroke-width="1.4"><rect x="1.5" y="2" width="5" height="4" rx="1"/><rect x="9.5" y="2" width="5" height="4" rx="1"/><rect x="5.5" y="10" width="5" height="4" rx="1"/><path d="M4 6v2h8V6M8 8v2"/></g></svg></button>
+      <button id="b-fit" aria-label="Fit" title="Fit the visible boxes to the window"><svg class="i" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4" fill="none" stroke="#3a3a3f" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    </span>
+  </div>
+  <main>
+    <div class="boardcol">
+      <div id="cy"></div>
+      <div class="legendbar" aria-label="Legend">
+        <div class="lrow"><b>Bar: who acts</b>
+          <span><span class="k" style="border:1px solid #dedee3;"><i style="background:#2563eb"></i></span>Yours</span>
+          <span><span class="k" style="border:1px solid #dedee3;"><i style="background:#c96442"></i></span>Claude's</span>
+          <span><span class="k" style="border:1px solid #dedee3;"><i style="background:#a21caf"></i></span>Hand-off</span>
+          <span><span class="k" style="border:1px solid #dedee3;background:#f6f6f8"><i style="background:repeating-linear-gradient(45deg,#2563eb 0 2px,#fff 2px 4px)"></i></span>Blocked</span>
+          <span><span class="k dchip" style="border:1px solid #e3e3e8;background:#f1f1f4"><i style="background:#2563eb;opacity:.5"></i></span>Done</span>
+        </div>
+        <div class="lrow"><b>Look out for</b>
+          <span><span class="k" style="border:2px solid #2563eb;box-shadow:0 0 0 3px rgba(37,99,235,.16)"></span>For you now</span>
+          <span><span class="k foot" style="border:1px solid #dedee3"><i style="background:#fbe7dc;border-top:1px solid #c96442"></i></span>Claude running, for how long</span>
+          <span><span class="k" style="border:2px solid #d9822b;box-shadow:0 0 0 3px rgba(217,130,43,.18)"></span>Quiet: check it</span>
+          <span><svg width="26" height="10" viewBox="0 0 26 10" aria-hidden="true"><path d="M1 5h19" stroke="#1a73e8" stroke-width="2"/><path d="M19 1.5l5 3.5-5 3.5z" fill="#1a73e8"/></svg>Selected task's chain; the rest fades</span>
+          <b class="gap">Arrows</b>
+          <span><svg width="26" height="10" viewBox="0 0 26 10" aria-hidden="true"><path d="M1 5h19" stroke="#a1a1a6" stroke-width="2"/><path d="M19 1.5l5 3.5-5 3.5z" fill="#a1a1a6"/></svg>Prerequisite open</span>
+          <span><svg width="26" height="10" viewBox="0 0 26 10" aria-hidden="true"><path d="M1 5h19" stroke="#4e9f6a" stroke-width="2" stroke-dasharray="5 4"/><path d="M19 1.5l5 3.5-5 3.5z" fill="#4e9f6a"/></svg>Prerequisite done</span>
+        </div>
+      </div>
+    </div>
+    <aside id="panel"></aside>
+  </main>
+</div>
+<script src="/static/vendor/cytoscape.min.js"></script>
+<script src="/static/vendor/dagre.min.js"></script>
+<script src="/static/vendor/cytoscape-dagre.min.js"></script>
+<script>
+"use strict";
+const TOKEN = "__TASKFLOW_TOKEN__";
+// Inside the Taskflow app (macapp/), the page talks to the app: copying, saved box positions, and error reports.
+const NATIVE = window.TASKFLOW_NATIVE && window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.taskflow;
+const SAVED_POSITIONS = NATIVE ? Object.keys(window.TASKFLOW_POSITIONS || {}).length : 0;   // reported to the app's log
+if (NATIVE) {
+  window.addEventListener("error", (e) => NATIVE.postMessage({ kind: "error", text: String(e.message) + " (line " + e.lineno + ")" }));
+  window.addEventListener("unhandledrejection", (e) => NATIVE.postMessage({ kind: "error", text: "unhandled rejection: " + String(e.reason) }));
+}
+const POLL_MS = 3000;
+let state = null, cy = null, selectedId = null, structureKey = "", busy = false;
+const keepVisible = new Set();   // items ticked on this page stay visible (greyed) until reload, so they can be unticked
+const el = (id) => document.getElementById(id);
+
+// Emoji shown for assignment tags. Edit here to change them; the tracker keeps the plain tags.
+const EMOJI = { type: { session: "\u{1F9D1}\u200D\u{1F4BB}" }, owner: { me: "\u{1F469}\u{1F3FB}", claude: "\u{1F4BB}" } };
+function emojiFor(it) { return EMOJI.type[it.type] || EMOJI.owner[it.owner] || ""; }
+// The hub's look (static/hub.html): the project's colour, as the hub gives it, and line icons for who acts.
+const PALETTE = {   // the project colours (PROJECT_COLORS in taskflow.py, which picks each project's); solid fills carry white text
+  blue: { solid: "#2563EB", tint: "#E9F0FE", ink: "#1E40AF" }, purple: { solid: "#7C3AED", tint: "#F1EAFE", ink: "#5B21B6" },
+  orange: { solid: "#C2410C", tint: "#FDEDE3", ink: "#9A3412" }, green: { solid: "#15803D", tint: "#E6F4EA", ink: "#166534" },
+  teal: { solid: "#0F766E", tint: "#E2F3F1", ink: "#115E59" }, pink: { solid: "#BE185D", tint: "#FCE7F1", ink: "#9D174D" },
+  amber: { solid: "#B45309", tint: "#FEF3C7", ink: "#92400E" }, slate: { solid: "#475569", tint: "#EEF2F6", ink: "#334155" },
+};
+const COLOR_NAMES = Object.keys(PALETTE);
+// a colour by name; an older server sends only the project's place in the list, which picked the colour before
+function colorOf(name, index) { return PALETTE[name] || PALETTE[COLOR_NAMES[(((index || 0) % 8) + 8) % 8]]; }
+const ICONS = {
+  steps: [["rect", { x: 2, y: 2, width: 12, height: 12, rx: 3 }], ["path", { d: "M5 8.2l2 2 4-4.4" }]],   // a checklist's progress
+  person: [["circle", { cx: 8, cy: 5.5, r: 3 }], ["path", { d: "M2.5 14c.8-3 3-4.5 5.5-4.5s4.7 1.5 5.5 4.5" }]],
+  laptop: [["rect", { x: 2.5, y: 3, width: 11, height: 7.5, rx: 1.2 }], ["path", { d: "M1 13h14" }]],
+  handoff: [["path", { d: "M6 4L2.5 7.5 6 11M3 7.5h7a3.5 3.5 0 010 7H9" }]],
+  check: [["path", { d: "M3 8.5l3.2 3.2L13 4.8" }]],
+  doc: [["path", { d: "M4 1.5h5.5L13 5v9.5H4z" }], ["path", { d: "M9.5 1.5V5H13" }]],
+  x: [["path", { d: "M4 4l8 8M12 4l-8 8" }]],
+  star: [["path", { d: "M8 1.8l1.9 4 4.3.5-3.2 3 .9 4.3L8 11.4l-3.9 2.2.9-4.3-3.2-3 4.3-.5z", fill: true }]],
+};
+function icon(name, size, color, label) {
+  const NS = "http://www.w3.org/2000/svg", svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("width", size); svg.setAttribute("height", size); svg.setAttribute("viewBox", "0 0 16 16"); svg.setAttribute("class", "i");
+  if (label) { svg.setAttribute("role", "img"); svg.setAttribute("aria-label", label); } else svg.setAttribute("aria-hidden", "true");
+  ICONS[name].forEach(([tag, attrs]) => {
+    const e = document.createElementNS(NS, tag);
+    Object.entries(attrs).forEach(([k, v]) => { if (k !== "fill") e.setAttribute(k, v); });
+    if (attrs.fill) e.setAttribute("fill", color);
+    else { e.setAttribute("fill", "none"); e.setAttribute("stroke", color); e.setAttribute("stroke-width", "1.5"); e.setAttribute("stroke-linecap", "round"); e.setAttribute("stroke-linejoin", "round"); }
+    svg.append(e);
+  });
+  return svg;
+}
+function whoIcon(it) { return it.type === "session" ? "handoff" : it.owner === "claude" ? "laptop" : it.owner === "me" ? "person" : ""; }
+function dayOf(str) { const [y, m, d] = str.split("-").map(Number); return new Date(y, m - 1, d); }
+function fmtDay(date, weekday) {
+  const t = dayOf(date), o = { month: "short", day: "numeric" };
+  if (weekday) o.weekday = "short";
+  if (t.getFullYear() !== new Date().getFullYear()) o.year = "numeric";
+  return t.toLocaleDateString("en-US", o);
+}
+function daysLeft(date) { const t = new Date(); return Math.round((dayOf(date) - new Date(t.getFullYear(), t.getMonth(), t.getDate())) / 86400000); }
+function daysPhrase(n) { return n === 0 ? "today" : n === 1 ? "tomorrow" : n > 1 ? "in " + n + " days" : n === -1 ? "passed yesterday" : "passed " + -n + " days ago"; }
+
+function byId(id) { return state ? state.items.find((i) => i.id === id) : null; }
+function sessionOf(sid) { return (state && state.sessions && state.sessions[sid]) || {}; }
+function sessionName(sid) { const s = sessionOf(sid); return (s.title || "untitled session") + " · " + sid.slice(0, 8); }
+function fillSessionFilter() {
+  const sel = el("f-session"), cur = sel.value;
+  const ids = Object.keys(state.sessions || {});
+  const key = JSON.stringify(ids.map((sid) => [sid, sessionOf(sid).title]));
+  if (sel.dataset.key === key) return;
+  sel.dataset.key = key;
+  sel.replaceChildren(h("option", { value: "" }, "all"), ...ids.map((sid) => h("option", { value: sid }, sessionName(sid))),
+    h("option", { value: "-" }, "none (no @sessionid)"));
+  sel.value = ids.includes(cur) || cur === "-" ? cur : "";
+}
+function posKey() { return "taskflow-pos:" + (state ? state.path : ""); }
+function loadPositions() {
+  if (NATIVE) return window.TASKFLOW_POSITIONS || {};      // kept by the app per tracker (its port changes each launch)
+  try { return JSON.parse(localStorage.getItem(posKey()) || "{}"); } catch (e) { return {}; }
+}
+function savePositions() {
+  const p = {}; cy.nodes().forEach((n) => { p[n.id()] = n.position(); });
+  if (tidy) p[TIDY_KEY] = true;
+  if (NATIVE) { window.TASKFLOW_POSITIONS = p; NATIVE.postMessage({ kind: "positions", value: p }); return; }
+  try { localStorage.setItem(posKey(), JSON.stringify(p)); } catch (e) { /* storage unavailable */ }
+}
+
+async function api(path, body) {
+  const opt = body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json", "X-Taskflow-Token": TOKEN }, body: JSON.stringify(body) };
+  try {
+    const r = await fetch(path, opt);
+    let data = {};
+    try { data = await r.json(); } catch (e) { /* no body */ }
+    return { ok: r.ok, status: r.status, data };
+  } catch (e) {
+    return { ok: false, status: 0, data: { error: "The taskflow server is not running. Start it again with the launcher." } };
+  }
+}
+
+function statusLine(it) {   // the box's last line: what it is waiting for, or who it is ready for
+  if (it.done) return "Done" + (it.tags.done ? " " + fmtDay(it.tags.done.slice(0, 10)) : "");
+  const unmet = it.unmet || [], waits = unmet.length ? "waits for " + unmet[0] + (unmet.length > 1 ? " +" + (unmet.length - 1) : "") : "";
+  if (it.status === "inprogress") return "In progress" + (waits ? " · " + waits : "");
+  if (waits) return "W" + waits.slice(1);
+  if (it.status === "waiting") return "Waiting";
+  return "Ready · " + (it.type === "session" ? "hand-off" : it.owner === "me" ? "for you" : it.owner === "claude" ? "Claude's" : it.owner || "no owner");
+}
+function statusKind(it) {   // picks the status line's colour, as in the mock-up
+  if (it.done) return "done";
+  if (it.status === "inprogress") return "prog";
+  if ((it.unmet || []).length) return "waits";
+  return it.status === "waiting" ? "waiting" : "ready";
+}
+const STATUS_INK = { done: "#636366", prog: "#1e40af", waits: "#a12b2b", waiting: "#8a3b00", ready: "#13663b" };
+// Who acts, in the bar down a box's left side: blue for the user's, Anthropic's clay for Claude's own, purple
+// for a hand-off, grey for another owner or none.
+const WHO_COLOR = { me: "#2563eb", claude: "#c96442", handoff: "#a21caf", other: "#8e8e93" };
+function whoKey(it) { return it.type === "session" ? "handoff" : it.owner === "me" || it.owner === "claude" ? it.owner : "other"; }
+// Claude's own work in progress (as the server's hub_group): a bar along the bottom of its box says how long it has run, from
+// its registered job or else from @started, or, once its session has been quiet for an hour, that it needs a look.
+function running(it) { return !it.done && it.type !== "session" && it.owner === "claude" && it.status === "inprogress"; }
+function minutesText(m) {   // 7 min, 2 h 30 min, 3 d 4 h
+  m = Math.max(0, Math.round(m));
+  if (m < 60) return m + " min";
+  if (m < 1440) return Math.floor(m / 60) + " h" + (m % 60 ? " " + (m % 60) + " min" : "");
+  return Math.floor(m / 1440) + " d" + (Math.floor((m % 1440) / 60) ? " " + Math.floor((m % 1440) / 60) + " h" : "");
+}
+function runStart(it) {   // when its run began, or null when that is not recorded
+  const a = it.activity, s = (a && a.job && a.job.started) || (it.started ? it.started.replace(" ", "T") : "");
+  const t = s ? new Date(s) : null;
+  return t && !isNaN(t) ? t : null;
+}
+function runBar(it) {   // [text, quiet] for the bar along the bottom of Claude's running box; null for any other box
+  if (!running(it)) return null;
+  const a = it.activity;
+  if (a && a.idle) return ["Quiet " + minutesText(a.quiet_min) + " · check it", true];
+  const t = runStart(it);
+  return [t ? "Running " + minutesText((Date.now() - t) / 60000) : "Running", false];
+}
+// Cytoscape writes a label in one colour, so a box's bold id and coloured status line are drawn in its image (boxImage)
+// and the label is its title alone, wrapped here to two lines so that it never runs into them.
+const LABEL_FONT = "12.5px -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif", LABEL_MAX = 140;
+// A box (the "calendar bar" design): 200 x 88 with corners of 10 and a 14px bar down its left side; its text
+// starts 49px in, after the tick box and the icon under it; lines are 16px, from 9px down: the id, the title in one or two
+// lines, then the status line (or, for Claude's running work, the bar along the bottom). A done task is a slim chip, 200 x 44.
+const LINE = 16, TEXT_X = 49, TOP = 9, CARD_R = 10, BAR_W = 14, CHIP_H = 44, TICK_X = 22, TICK_Y = 8, CHIP_TICK_Y = 13, FOOT_H = 22;
+const measure = document.createElement("canvas").getContext("2d");
+function label(it) {
+  measure.font = LABEL_FONT;
+  const words = it.title.split(/\s+/).filter(Boolean), lines = [""];
+  for (const w of words) {
+    const tryLine = lines[lines.length - 1] ? lines[lines.length - 1] + " " + w : w;
+    if (measure.measureText(tryLine).width <= LABEL_MAX || !lines[lines.length - 1]) lines[lines.length - 1] = tryLine;
+    else lines.push(w);
+  }
+  if (lines.length > 2) {   // a third line would run into the status: cut the second to fit with an ellipsis
+    let l = lines[1];
+    while (l && measure.measureText(l + "…").width > LABEL_MAX) l = l.slice(0, -1);
+    lines.splice(1, lines.length, l.trimEnd() + "…");
+  }
+  return lines.join("\n");
+}
+function labelShift(text) {   // Cytoscape centres a label; this starts its lines TEXT_X in from the box's left edge
+  measure.font = LABEL_FONT;
+  const w = Math.min(LABEL_MAX, Math.max(...text.split("\n").map((l) => measure.measureText(l).width)));
+  return Math.round(w / 2 - (200 / 2 - TEXT_X));
+}
+function labelDrop(text) {   // and puts the title right under the id line: its centre's offset from the box's centre (44px down)
+  return TOP + LINE + (text.split("\n").length * LINE) / 2 - 44;
+}
+function classesFor(it) {
+  const c = ["t-" + (it.type || "other"), "o-" + (it.owner || "none"), "w-" + whoKey(it)];
+  c.push(it.done ? "done" : it.ready ? "ready" : "blocked");
+  if (!it.done && it.status === "inprogress") c.push("prog");
+  const rb = runBar(it);
+  if (rb && rb[1]) c.push("quiet");
+  if (isActive(it)) c.push("active");
+  return c.join(" ");
+}
+function elementsFor(st) {
+  const ids = new Set(st.items.map((i) => i.id));
+  const els = st.items.map((it) => ({ group: "nodes", data: Object.assign({ id: it.id }, nodeData(it)), classes: classesFor(it) }));
+  st.items.forEach((it) => it.needs.forEach((n) => {
+    if (ids.has(n)) els.push({ group: "edges", data: { id: n + "->" + it.id, source: n, target: it.id } });
+  }));
+  return els;
+}
+
+function svgUri(svg) { return "data:image/svg+xml;utf8," + encodeURIComponent(svg); }
+// The box's left column: its tick box (open, in progress with a dash, done, or read-only) and, under it, who acts.
+const BOX_TICK = {
+  open: "<rect x='1.5' y='1.5' width='15' height='15' rx='3.5' fill='white' stroke='#3a3a3f' stroke-width='1.6'/>",
+  prog: "<rect x='1.5' y='1.5' width='15' height='15' rx='3.5' fill='white' stroke='#3a3a3f' stroke-width='1.6'/><path d='M5 9 H13' stroke='#3a3a3f' stroke-width='2.2' stroke-linecap='round'/>",
+  done: "<rect x='1.5' y='1.5' width='15' height='15' rx='3.5' fill='#1a7f4b' stroke='#1a7f4b' stroke-width='1.6'/><path d='M5 9.5 L8 12.5 L13.5 6' fill='none' stroke='white' stroke-width='2.1' stroke-linecap='round' stroke-linejoin='round'/>",
+  ro: "<rect x='1.5' y='1.5' width='15' height='15' rx='3.5' fill='#f4f4f6' stroke='#b4b4bb' stroke-width='1.5' stroke-dasharray='2 2'/>",
+};
+const BOX_WHO = {   // the hub's icons, drawn 23px below the tick box
+  person: "<circle cx='9' cy='28' r='3'/><path d='M3.5 36.5c.8-3 3-4.5 5.5-4.5s4.7 1.5 5.5 4.5'/>",
+  laptop: "<rect x='3.5' y='25.5' width='11' height='7.5' rx='1.2'/><path d='M2 35.5h14'/>",
+  handoff: "<path d='M7 26.5L3.5 30 7 33.5M4 30h7a3.5 3.5 0 010 7H10'/>",
+};
+const boxImages = new Map();
+const xmlEsc = (t) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/'/g, "&apos;");
+const BOX_FONT = "-apple-system, BlinkMacSystemFont, Helvetica Neue, sans-serif";
+function boxImage(it, lines) {   // the box's face over its fill: the bar, tick box, who acts under it, the bold id, and under the title (lines long) the coloured status
+  const tick = it.readonly ? "ro" : it.done ? "done" : it.status === "inprogress" ? "prog" : "open", who = whoIcon(it);
+  const id = it.id + (it.priority === "high" ? " ★" : it.priority === "low" ? " · low" : ""), st = statusLine(it), kind = statusKind(it);
+  const bar = WHO_COLOR[whoKey(it)], blocked = !it.done && !it.ready, rb = runBar(it), steps = stepsOf(it);
+  const key = [tick, who, id, st, kind, lines, bar, blocked, rb ? rb.join("/") : "", it.done ? it.title : "", steps ? steps.join("/") : ""].join("|");
+  if (!boxImages.has(key)) boxImages.set(key, svgUri(it.done ? chipFace(it, tick, id, bar) : cardFace(tick, who, id, st, kind, lines, bar, blocked, rb, steps)));
+  return boxImages.get(key);
+}
+function stepsOf(it) {   // [done, all] of its checklist, or null when it has none
+  const cl = it.checklist || [];
+  return cl.length ? [cl.filter((c) => c.done).length, cl.length] : null;
+}
+function stepsMark(steps) {   // top right of a card: a small ticked box and "2/5", green once every step is done
+  measure.font = "600 11.5px " + BOX_FONT;
+  const text = steps[0] + "/" + steps[1], w = measure.measureText(text).width, all = steps[0] === steps[1], c = all ? "#13663b" : "#6e6e73";
+  const x = 189 - w - 15;
+  return "<rect x='" + x + "' y='" + (TOP + 2.5) + "' width='11' height='11' rx='3' fill='" + (all ? c : "none") + "' stroke='" + c + "' stroke-width='1.3'/>" +
+    "<path d='M" + (x + 2.6) + " " + (TOP + 8.2) + "l2 2 3.8-4.2' fill='none' stroke='" + (all ? "white" : c) + "' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/>" +
+    "<text x='189' y='" + (TOP + 12) + "' text-anchor='end' font-family='" + BOX_FONT + "' font-size='11.5' font-weight='600' fill='" + c + "'>" + text + "</text>";
+}
+function cardFace(tick, who, id, st, kind, lines, bar, blocked, rb, steps) {
+  const ink = blocked ? "#6e6e73" : "#1d1d1f", foot = 88 - FOOT_H;
+  return "<svg xmlns='http://www.w3.org/2000/svg' width='600' height='264' viewBox='0 0 200 88'><defs>" +
+    "<clipPath id='card'><rect width='200' height='88' rx='" + CARD_R + "'/></clipPath>" +
+    // blocked: the bar striped in its colour, as a calendar marks a tentative event
+    (blocked ? "<pattern id='hatch' width='6' height='6' patternUnits='userSpaceOnUse' patternTransform='rotate(45)'><rect width='6' height='6' fill='white'/><rect width='3' height='6' fill='" + bar + "'/></pattern>" : "") +
+    "</defs><g clip-path='url(#card)'><rect width='" + BAR_W + "' height='88' fill='" + (blocked ? "url(#hatch)" : bar) + "'/>" +
+    (rb ? "<rect y='" + foot + "' width='200' height='" + FOOT_H + "' fill='" + (rb[1] ? "#ffefd9" : "#fbe7dc") + "'/>" : "") + "</g>" +
+    "<g transform='translate(" + TICK_X + " " + TICK_Y + ")'>" + BOX_TICK[tick] +
+    (who ? "<g fill='none' stroke='#55555a' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'>" + BOX_WHO[who] + "</g>" : "") + "</g>" +
+    "<text x='" + TEXT_X + "' y='" + (TOP + 12) + "' font-family='" + BOX_FONT + "' font-size='12.5' font-weight='700' fill='" + ink + "'>" + xmlEsc(id) + "</text>" +
+    (steps ? stepsMark(steps) : "") +
+    (rb ? (rb[1] ? "" : "<circle cx='" + (BAR_W + 14.5) + "' cy='" + (foot + FOOT_H / 2) + "' r='3.5' fill='#8a3b1f'/>") +
+      "<text x='" + (rb[1] ? BAR_W + 11 : BAR_W + 23) + "' y='" + (foot + 15) + "' font-family='" + BOX_FONT + "' font-size='11.5' font-weight='600' fill='" + (rb[1] ? "#8a3b00" : "#8a3b1f") + "'>" + xmlEsc(rb[0]) + "</text></svg>"
+      : "<text x='" + TEXT_X + "' y='" + (TOP + LINE * (lines + 1) + 12) + "' font-family='" + BOX_FONT + "' font-size='11.5' fill='" + STATUS_INK[kind] + "'>" + xmlEsc(st) + "</text></svg>");
+}
+function chipFace(it, tick, id, bar) {   // a done task: a slim chip with its bar at half strength, tick, id and title on one line
+  measure.font = "700 12px " + BOX_FONT;
+  const tx = TICK_X + 26 + measure.measureText(id).width + 6;
+  measure.font = "12px " + BOX_FONT;
+  let title = it.title;
+  if (measure.measureText(title).width > 200 - 12 - tx) {
+    while (title && measure.measureText(title + "…").width > 200 - 12 - tx) title = title.slice(0, -1);
+    title = title.trimEnd() + "…";
+  }
+  return "<svg xmlns='http://www.w3.org/2000/svg' width='600' height='132' viewBox='0 0 200 " + CHIP_H + "'><defs><clipPath id='card'><rect width='200' height='" + CHIP_H + "' rx='" + CARD_R + "'/></clipPath></defs>" +
+    "<rect width='" + BAR_W + "' height='" + CHIP_H + "' fill='" + bar + "' fill-opacity='0.5' clip-path='url(#card)'/>" +
+    "<g transform='translate(" + TICK_X + " " + CHIP_TICK_Y + ")'>" + BOX_TICK[tick] + "</g>" +
+    "<text x='" + (TICK_X + 26) + "' y='26.5' font-family='" + BOX_FONT + "' font-size='12' font-weight='700' fill='#55555a'>" + xmlEsc(id) + "</text>" +
+    "<text x='" + tx + "' y='26.5' font-family='" + BOX_FONT + "' font-size='12' fill='#6e6e73'>" + xmlEsc(title) + "</text></svg>";
+}
+function nodeData(it) {   // what a box shows: its title as the label, placed under the id, and its face; a done chip has it all in its face
+  if (it.done) return { label: "", mx: 0, my: 0, cb: boxImage(it, 0) };
+  const l = label(it), lines = l.split("\n").length;
+  return { label: l, mx: labelShift(l), my: labelDrop(l), cb: boxImage(it, lines) };
+}
+const CB_PROG = svgUri("<svg xmlns='http://www.w3.org/2000/svg' width='18' height='18'>" + BOX_TICK.prog + "</svg>");   // the legend's in-progress box
+const CB_SIZE = 18;                 // the tick box, drawn TICK_X in from a box's left side, after its bar
+const TAXI_TURN = 45;               // px from a box's right side to an arrow's turn: the middle of the gap between columns
+
+const STYLE = [
+  { selector: "node", style: { shape: "round-rectangle", "corner-radius": CARD_R, width: 200, height: 88, "background-color": "#ffffff",
+    "border-width": 1, "border-color": "#dedee3", label: "data(label)", "text-wrap": "wrap", "text-max-width": 160, "line-height": 1.28,
+    "text-justification": "left", "text-margin-x": "data(mx)", "text-margin-y": "data(my)", "font-size": 12.5, "text-valign": "center", "text-halign": "center", color: "#1d1d1f",
+    "font-family": "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif",   // as LABEL_FONT
+    "background-image": "data(cb)", "background-width": 200, "background-height": 88,
+    "background-position-x": 0, "background-position-y": 0, "background-repeat": "no-repeat",
+    "background-fit": "none", "background-clip": "none", "background-image-containment": "over" } },
+  // The "calendar bar" design (chosen from the mock-ups): white cards with a bar in the colour of who acts
+  // (in the face); a blocked card grey with a striped bar; what is for the user now outlined in its own colour with a soft glow;
+  // Claude's work gone quiet outlined in amber; a done task a slim grey chip; a selected card white with a blue border, and
+  // its whole chain (what it needs, and what waits on it) bright while the rest of the board fades.
+  { selector: "node.blocked", style: { "background-color": "#f6f6f8", color: "#6e6e73" } },
+  { selector: "node.done", style: { height: CHIP_H, "background-height": CHIP_H, "background-color": "#f1f1f4", "border-color": "#e3e3e8", color: "#6e6e73" } },
+  { selector: "node.active", style: { "border-width": 2, "underlay-opacity": 0.16, "underlay-padding": 5, "underlay-shape": "round-rectangle", "underlay-corner-radius": CARD_R + 5 } },
+  { selector: "node.active.w-me", style: { "border-color": "#2563eb", "underlay-color": "#2563eb" } },
+  { selector: "node.active.w-handoff", style: { "border-color": "#a21caf", "underlay-color": "#a21caf", "underlay-opacity": 0.14 } },
+  { selector: "node.quiet", style: { "border-width": 2, "border-color": "#d9822b", "underlay-color": "#d9822b", "underlay-opacity": 0.18, "underlay-padding": 5, "underlay-shape": "round-rectangle", "underlay-corner-radius": CARD_R + 5 } },
+  // a faded card drops its glow, which would otherwise show through it as a tint
+  { selector: "node.dim", style: { opacity: 0.22, "underlay-opacity": 0 } },
+  { selector: "node.outside", style: { opacity: 0.3, "underlay-opacity": 0 } },
+  { selector: "node.hidden", style: { display: "none" } },
+  { selector: "node:selected", style: { "background-color": "#ffffff", "border-color": "#1a73e8", "border-width": 3.5, "outline-width": 4, "outline-color": "#1a73e8", "outline-opacity": 0.22, "outline-offset": 0 } },
+  { selector: "edge", style: { width: 1.6, "line-color": "#a1a1a6", "target-arrow-color": "#a1a1a6", "target-arrow-shape": "triangle", "arrow-scale": 0.9,
+    // right-angled, as in the mock-up: out of a box's right side, a turn in the next gap, into the left side;
+    // the turns rounded like the cards' corners; "round-taxi", since plain "taxi" ignores taxi-radius
+    "curve-style": "round-taxi", "taxi-direction": "horizontal", "taxi-turn": TAXI_TURN, "taxi-turn-min-distance": 6, "taxi-radius": CARD_R,
+    "line-outline-width": 2, "line-outline-color": "#fafafb" } },   // the canvas's colour, so the line on top keeps a gap where two cross
+  // from a done task, the prerequisite is met: dashed green
+  { selector: "edge.met", style: { "line-color": "#4e9f6a", "target-arrow-color": "#4e9f6a", "line-style": "dashed", "line-dash-pattern": [6, 5] } },
+  { selector: "edge.hl", style: { "line-color": "#1a73e8", "target-arrow-color": "#1a73e8", width: 2.8 } },   // in the selected task's chain
+  { selector: "edge.outside", style: { opacity: 0.3 } },
+  // the box under the pointer: its edges stand out and the others fade, so a line can be followed past any crossing
+  { selector: "edge.hov", style: { "line-color": "#1a73e8", "target-arrow-color": "#1a73e8", width: 2.8, "z-index": 10 } },
+  { selector: "edge.faded", style: { opacity: 0.18 } },
+];
+
+function visibleElements() {
+  return cy.elements().filter((e) => e.isNode() ? !e.hasClass("hidden") : !(e.source().hasClass("hidden") || e.target().hasClass("hidden")));
+}
+// Boxes are BOX_W x BOX_H (STYLE); the layout puts columns COL_STEP apart and rows ROW_STEP apart (rankSep, nodeSep).
+const BOX_W = 200, BOX_H = 88, COL_STEP = BOX_W + 90, ROW_STEP = BOX_H + 22, GAP_X = 120, GAP_Y = 70;
+// A tidy board was last arranged by Re-layout, not by dragging, so it is laid out afresh whenever a filter shows or hides
+// boxes; a board arranged by hand keeps its arrangement. Saved with the positions; boards saved before 2026-10-11 count as
+// arranged by hand. "#" cannot occur in an @id, so the key never clashes with a box.
+const TIDY_KEY = "#tidy";
+const SPAN_COST = 0.1;   // tangle() per column an edge spans beyond the next: ten such columns weigh as much as one crossing (chosen 2026-10-11 on real boards)
+let tidy = false;
+function crosses(a, b, c, d) {   // segments ab and cd cross
+  const o = (p, q, r) => Math.sign((q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x));
+  return o(a, b, c) * o(a, b, d) < 0 && o(c, d, a) * o(c, d, b) < 0;
+}
+function throughBox(a, b, c) {   // segment ab passes through the box centred at c (Liang-Barsky clipping)
+  const dx = b.x - a.x, dy = b.y - a.y;
+  let t0 = 0, t1 = 1;
+  for (const [p, q] of [[-dx, a.x - c.x + BOX_W / 2], [dx, c.x + BOX_W / 2 - a.x], [-dy, a.y - c.y + BOX_H / 2], [dy, c.y + BOX_H / 2 - a.y]]) {
+    if (p === 0) { if (q < 0) return false; continue; }
+    const r = q / p;
+    if (p < 0) { if (r > t1) return false; if (r > t0) t0 = r; } else { if (r < t0) return false; if (r < t1) t1 = r; }
+  }
+  return t0 < t1;
+}
+function route(p, q) {   // an arrow's three straight parts, as Cytoscape draws a horizontal taxi edge between boxes centred at p and q
+  const dir = q.x >= p.x ? 1 : -1, sx = p.x + dir * BOX_W / 2, tx = q.x - dir * BOX_W / 2, mx = sx + dir * TAXI_TURN;
+  return [[{ x: sx, y: p.y }, { x: mx, y: p.y }], [{ x: mx, y: p.y }, { x: mx, y: q.y }], [{ x: mx, y: q.y }, { x: tx, y: q.y }]];
+}
+function sharedRun(u, v) {   // two vertical parts on one line that overlap: the arrows look joined
+  if (Math.abs(u[0].x - v[0].x) >= 1) return false;
+  const lo = Math.max(Math.min(u[0].y, u[1].y), Math.min(v[0].y, v[1].y)), hi = Math.min(Math.max(u[0].y, u[1].y), Math.max(v[0].y, v[1].y));
+  return hi - lo > 1;
+}
+function tangle(pts, es) {
+  // How tangled a group is as drawn (right-angled arrows, route): each pair of arrows that cross, or whose vertical parts
+  // run together, counts 1 (arrows from one box or into one box may share their run: that is a fork, not a tangle); each
+  // arrow passing through a box other than its ends counts 2, since it looks like a connection that is not there.
+  const routes = es.map(([a, b]) => route(pts[a], pts[b]));
+  let s = 0;
+  es.forEach(([a, b], i) => {
+    for (let j = i + 1; j < es.length; j++) {
+      const [c, d] = es[j];
+      if (c === a || d === b) continue;
+      if (c !== b && d !== a && (routes[i].some((u) => routes[j].some((v) => crosses(u[0], u[1], v[0], v[1]))) || sharedRun(routes[i][1], routes[j][1]))) s += 1;
+    }
+    for (const id in pts) if (id !== a && id !== b && routes[i].some(([u, v]) => throughBox(u, v, pts[id]))) s += 2;
+    s += SPAN_COST * Math.max(0, Math.round(Math.abs(pts[b].x - pts[a].x) / COL_STEP) - 1);   // an edge longer than one column
+  });
+  return s;
+}
+function untangle(pts, es, score) {   // swaps neighbouring boxes within a column while that lowers the tangle (pts changes in place)
+  const cols = new Map();
+  Object.keys(pts).forEach((id) => { const x = Math.round(pts[id].x); if (!cols.has(x)) cols.set(x, []); cols.get(x).push(id); });
+  const lists = [...cols.values()].filter((c) => c.length > 1).map((c) => c.sort((a, b) => pts[a].y - pts[b].y));
+  for (let pass = 0, better = true; better && score > 0 && pass < 4; pass++) {
+    better = false;
+    for (const col of lists) for (let i = 0; i + 1 < col.length; i++) {
+      const a = col[i], b = col[i + 1], ya = pts[a].y, yb = pts[b].y;
+      pts[a].y = yb; pts[b].y = ya;
+      const t = tangle(pts, es);
+      if (t < score) { score = t; col[i] = b; col[i + 1] = a; better = true; } else { pts[a].y = ya; pts[b].y = yb; }
+    }
+  }
+}
+function layoutGroup(nodes, edges, order) {
+  // One connected group, left to right by dependency: dagre with each of its three rankers, on the items in file order;
+  // the least tangled is kept, then untangled further. Positions are the group's own, from about (0, 0). Three runs, not
+  // more (some crossings are fine, the app's load matters): on the user's boards, also trying the reverse
+  // order doubled the time and removed no crossing.
+  const ids = nodes.map((n) => n.id()), es = edges.map((e) => [e.source().id(), e.target().id()]);
+  const key = (e) => e.isNode() ? order.get(e.id()) : order.get(e.source().id()) * 1e4 + order.get(e.target().id());
+  let best = null;
+  for (const ranker of ["network-simplex", "tight-tree", "longest-path"]) {
+    nodes.union(edges).layout({ name: "dagre", rankDir: "LR", nodeSep: 22, rankSep: 90, edgeSep: 10, fit: false, animate: false,
+      ranker, sort: (a, b) => key(a) - key(b) }).run();
+    const pts = Object.fromEntries(ids.map((id) => [id, Object.assign({}, cy.getElementById(id).position())])), t = tangle(pts, es);
+    if (!best || t < best.t) best = { t, pts };
+  }
+  untangle(best.pts, es, best.t);
+  nodes.forEach((n) => n.position(best.pts[n.id()]));
+}
+function extentOf(ns) {   // the boxes' bounding box
+  const xs = ns.map((n) => n.position("x")), ys = ns.map((n) => n.position("y"));
+  const x1 = Math.min(...xs) - BOX_W / 2, y1 = Math.min(...ys) - BOX_H / 2;
+  return { x1, y1, w: Math.max(...xs) + BOX_W / 2 - x1, h: Math.max(...ys) + BOX_H / 2 - y1 };
+}
+function runLayout() {
+  // Lays out the visible boxes afresh: each connected group on its own (layoutGroup), so groups never
+  // cross; the boxes that stand alone in a grid; then the groups, largest first, and the grid packed row by row into a block
+  // shaped like the board's window, so that Fit shows everything as large as it can. Hidden boxes are left where they are.
+  const vis = visibleElements(), nodes = vis.nodes();
+  if (nodes.length === 0) return;
+  const order = new Map(state.items.map((it, k) => [it.id, k]));
+  const parts = [], alone = [];
+  vis.components().forEach((c) => {
+    const ns = c.nodes(), inside = new Set(ns.map((n) => n.id()));
+    if (ns.length === 1) { alone.push(ns[0]); return; }
+    layoutGroup(ns, vis.edges().filter((e) => inside.has(e.source().id()) && inside.has(e.target().id())), order);
+    parts.push({ ns: ns.toArray(), first: Math.min(...ns.map((n) => order.get(n.id()))) });
+  });
+  parts.sort((a, b) => b.ns.length - a.ns.length || a.first - b.first);
+  parts.forEach((p) => Object.assign(p, extentOf(p.ns)));
+  const aspect = Math.min(4, Math.max(0.6, cy.width() / Math.max(1, cy.height())));
+  const widest = Math.max(BOX_W, ...parts.map((p) => p.w));
+  const area = parts.reduce((s, p) => s + (p.w + GAP_X) * (p.h + GAP_Y), 0) + alone.length * COL_STEP * ROW_STEP;
+  const target = Math.max(widest, Math.sqrt(area * aspect));   // the block's width
+  if (alone.length) {   // standalone boxes, in file order, in rows as wide as the block
+    const cols = Math.max(1, Math.min(alone.length, Math.floor((target - BOX_W) / COL_STEP) + 1));
+    alone.sort((a, b) => order.get(a.id()) - order.get(b.id()))
+      .forEach((n, k) => n.position({ x: (k % cols) * COL_STEP, y: Math.floor(k / cols) * ROW_STEP }));
+    parts.push(Object.assign({ ns: alone }, extentOf(alone)));
+  }
+  let x = 0, y = 0, rowH = 0;
+  parts.forEach((p) => {   // left to right, a new row when the next would make the block wider than the target
+    if (x > 0 && x + p.w > target) { x = 0; y += rowH + GAP_Y; rowH = 0; }
+    p.ns.forEach((n) => n.position({ x: n.position("x") - p.x1 + x, y: n.position("y") - p.y1 + y }));
+    x += p.w + GAP_X; rowH = Math.max(rowH, p.h);
+  });
+  tidy = true;
+  savePositions();
+  cy.fit(nodes, 30);
+}
+const overlaps = (p, q) => Math.abs(p.x - q.x) < BOX_W && Math.abs(p.y - q.y) < BOX_H;
+function freeSpot(p, taken) {   // p, or the first spot below it that overlaps none of the taken positions
+  const q = { x: p.x, y: p.y };
+  for (let t; (t = taken.find((s) => overlaps(q, s))); ) q.y = t.y + ROW_STEP;   // each step passes the box in the way
+  return q;
+}
+function placeAround(nodes, placed) {
+  // Gives each of `nodes` a spot from its neighbours in `placed` (id -> position of the boxes on show, extended as it goes):
+  // one column right of its prerequisites, at their mean height; else one column left of the items that need it; then
+  // moved down until clear of every placed box. Neighbours still waiting for a spot are placed first, so chains line up
+  // left to right. A box with no placed neighbour takes the first free cell of a grid just under the placed boxes, as
+  // wide as they are, so it stays with the rest of the board.
+  const pending = nodes.toArray();
+  const has = (m) => !!placed[m.id()], waits = (m) => pending.some((x) => x.id() === m.id());
+  const pre = (m) => m.incomers("node"), post = (m) => m.outgoers("node");
+  const tiers = [[pre, 1, true], [post, -1, true], [pre, 1, false], [post, -1, false]];   // [neighbours, side, only once none of them waits]
+  const start = Object.values(placed);
+  const grid = start.length ? { x: Math.min(...start.map((q) => q.x)), y: Math.max(...start.map((q) => q.y)) + ROW_STEP,
+    cols: Math.max(1, Math.round((Math.max(...start.map((q) => q.x)) - Math.min(...start.map((q) => q.x))) / COL_STEP) + 1) }
+    : { x: 0, y: 0, cols: Math.max(1, Math.ceil(Math.sqrt(pending.length))) };
+  while (pending.length) {
+    const all = Object.values(placed);
+    let n = null, p = null;
+    for (const [nb, side, strict] of tiers) {
+      n = pending.find((m) => nb(m).some(has) && !(strict && nb(m).some(waits)));
+      if (!n) continue;
+      const ps = nb(n).filter(has).map((m) => placed[m.id()]), xs = ps.map((q) => q.x);
+      p = freeSpot({ x: (side > 0 ? Math.max(...xs) : Math.min(...xs)) + side * COL_STEP, y: ps.reduce((s, q) => s + q.y, 0) / ps.length }, all);
+      break;
+    }
+    if (!n) {
+      n = pending[0];
+      for (let k = 0; !p; k++) {
+        const c = { x: grid.x + (k % grid.cols) * COL_STEP, y: grid.y + Math.floor(k / grid.cols) * ROW_STEP };
+        if (!all.some((q) => overlaps(c, q))) p = c;
+      }
+    }
+    placed[n.id()] = p;
+    n.position(p);
+    pending.splice(pending.indexOf(n), 1);
+  }
+}
+function placeShown(shown) {   // boxes that have just come into view on a board arranged by hand: beside their neighbours on show
+  if (!shown.length) return;
+  const placed = {};
+  cy.nodes().filter((n) => !n.hasClass("hidden")).difference(shown).forEach((m) => { placed[m.id()] = Object.assign({}, m.position()); });
+  placeAround(shown, placed);
+  savePositions();
+}
+function shownIds() { return new Set(cy.nodes().filter((n) => !n.hasClass("hidden")).map((n) => n.id())); }
+function hoverEdges(n) {   // n: the box under the pointer, or null
+  cy.batch(() => {
+    cy.edges().removeClass("hov faded");
+    if (n) { const mine = n.connectedEdges(); mine.addClass("hov"); cy.edges().difference(mine).addClass("faded"); }
+  });
+}
+function afterChange() {   // filters or positions changed
+  renderFilterCount(); syncShow();
+  const before = shownIds();
+  applyFilters();
+  const now = shownIds(), shown = cy.nodes().filter((n) => now.has(n.id()) && !before.has(n.id()));
+  if (tidy && (shown.length || now.size !== before.size)) runLayout();   // a tidy board is laid out afresh for what is on show
+  else if (shown.length) {
+    placeShown(shown);
+    const ext = cy.extent();   // bring them into view if any landed outside it
+    if (shown.some((n) => n.position("x") < ext.x1 || n.position("x") > ext.x2 || n.position("y") < ext.y1 || n.position("y") > ext.y2)) cy.fit(visibleElements(), 30);
+  }
+  updateEdges(); refreshNav(); if (!selectedId) renderPanel();
+}
+function placeNodes(forceLayout, fit) {   // fit: on first load only, so a live update keeps the user's view
+  const saved = loadPositions();
+  tidy = !!saved[TIDY_KEY];
+  const missing = cy.nodes().filter((n) => !saved[n.id()]);
+  if (forceLayout || missing.length === cy.nodes().length) { runLayout(); return; }
+  const placed = {};
+  cy.nodes().forEach((n) => { if (saved[n.id()]) { n.position(saved[n.id()]); if (!n.hasClass("hidden")) placed[n.id()] = Object.assign({}, saved[n.id()]); } });
+  placeAround(missing.filter((n) => !n.hasClass("hidden")), placed);   // new items on show, beside their neighbours
+  placeAround(missing.filter((n) => n.hasClass("hidden")), Object.assign({}, placed));   // hidden ones are placed again when shown
+  savePositions();
+  if (fit) cy.fit(visibleElements(), 30);
+}
+
+function applyFilters() {
+  const showDone = el("f-done").checked, readyOnly = el("f-ready").checked;
+  const owner = el("f-owner").value, type = el("f-type").value, sess = el("f-session").value, q = el("f-search").value.trim().toLowerCase();
+  cy.batch(() => cy.nodes().forEach((n) => {
+    const it = byId(n.id());
+    let vis = true;
+    if (!showDone && it.done && !keepVisible.has(it.id)) vis = false;
+    if (readyOnly && !it.ready && !keepVisible.has(it.id)) vis = false;
+    if (owner && it.owner !== owner) vis = false;
+    if (type && it.type !== type) vis = false;
+    if (sess === "-" ? it.sessionids.length > 0 : sess && !it.sessionids.includes(sess)) vis = false;
+    n.toggleClass("hidden", !vis);
+    const sessText = it.sessionids.map((sid) => sid + " " + (sessionOf(sid).title || "")).join(" ").toLowerCase();
+    const hit = !q || it.id.toLowerCase().includes(q) || it.title.toLowerCase().includes(q) || it.notes.join(" ").toLowerCase().includes(q) || sessText.includes(q);
+    n.toggleClass("dim", !hit);
+  }));
+}
+function chainOf(id) {   // the selected task's chain: everything it needs, all the way back, and everything that waits on it
+  const walk = (next) => {
+    const seen = new Set([id]), stack = [id];
+    while (stack.length) { const it = byId(stack.pop()); if (it) next(it).forEach((n) => { if (!seen.has(n)) { seen.add(n); stack.push(n); } }); }
+    return seen;
+  };
+  return { up: walk((it) => it.needs), down: walk((it) => it.needed_by) };
+}
+function updateEdges() {   // arrows met or not; with a task selected, its chain in focus and the rest faded
+  const ch = selectedId && byId(selectedId) ? chainOf(selectedId) : null;
+  cy.nodes().forEach((n) => n.toggleClass("outside", !!ch && !ch.up.has(n.id()) && !ch.down.has(n.id())));
+  cy.edges().forEach((e) => {
+    const s = byId(e.source().id()), a = e.source().id(), b = e.target().id();
+    e.toggleClass("met", !!(s && s.done));
+    const on = !!ch && ((ch.up.has(a) && ch.up.has(b)) || (ch.down.has(a) && ch.down.has(b)));
+    e.toggleClass("hl", on);
+    e.toggleClass("outside", !!ch && !on);
+  });
+}
+
+// ---------------- active tasks: assigned to the user, not done, every prerequisite done ----------------
+const isActive = (it) => it.owner === "me" && it.ready;
+const PRIORITY_RANK = { high: 0, low: 2 };   // anything else ranks 1
+const READABLE_ZOOM = 0.7, ACTIVE_MAX_ZOOM = 1.25;
+let lastStep = null;   // { id, index } of the last item Next or Prev went to, so Next after ticking it goes to the one that followed it
+function activeNodes() { return cy.nodes().filter((n) => !n.hasClass("hidden") && isActive(byId(n.id()))); }
+function activeOrder() {
+  // As taskflow.py's my_rank (the hub uses it too): high priority first and low last; then, within each priority,
+  // what finishing it lets Claude do (starts_claude, from the server; none for a waiting task); then waiting after the rest;
+  // then the score (3: finishing it starts one of Claude's own tasks, 2: a hand-off, 1: anything else, 0: nothing needs it);
+  // then more unfinished items downstream; then in progress before open; then board columns left to right
+  // (boxes within 40 px of a column's left-most box share it) and top to bottom.
+  const nodes = activeNodes().toArray(), col = new Map();
+  let c = -1, x0 = -Infinity;
+  nodes.slice().sort((a, b) => a.position("x") - b.position("x")).forEach((n) => {
+    if (n.position("x") - x0 > 40) { c += 1; x0 = n.position("x"); }
+    col.set(n.id(), c);
+  });
+  const key = (n) => { const it = byId(n.id()); return [PRIORITY_RANK[it.priority] ?? 1, it.status === "waiting" ? 0 : -(it.starts_claude || 0),
+    it.status === "waiting" ? 1 : 0, -(it.score || 0),
+    -(it.downstream || 0), it.status === "inprogress" ? 0 : 1, col.get(n.id()), n.position("y")]; };
+  return nodes.map((n) => [key(n), n.id()])
+    .sort((a, b) => a[0].reduce((d, v, k) => d || v - b[0][k], 0)).map((p) => p[1]);
+}
+function unblocks(it) {   // unfinished items that depend on it, directly or through others
+  const seen = new Set(), stack = [...it.needed_by];
+  while (stack.length) { const id = stack.pop(); if (seen.has(id)) continue; seen.add(id); const d = byId(id); if (d) stack.push(...d.needed_by); }
+  return [...seen].filter((id) => byId(id) && !byId(id).done).length;
+}
+function goTo(id) {   // select an item and bring it into view, at a readable zoom, unless it is already in view
+  select(id);
+  const n = cy.getElementById(id), bb = n.boundingBox(), ext = cy.extent();
+  if (bb.x1 >= ext.x1 && bb.x2 <= ext.x2 && bb.y1 >= ext.y1 && bb.y2 <= ext.y2 && cy.zoom() >= READABLE_ZOOM) return;
+  cy.stop(true);
+  cy.animate({ center: { eles: n }, zoom: cy.zoom() >= READABLE_ZOOM ? cy.zoom() : 1 }, { duration: 250 });
+}
+function stepActive(dir) {
+  if (!cy) return;
+  const order = activeOrder(), n = order.length;
+  if (!n) { flash(noActiveText(), true); return; }
+  const i = order.indexOf(selectedId);
+  let j;
+  if (i >= 0) j = (i + dir + n) % n;
+  else if (lastStep && lastStep.id === selectedId) j = dir > 0 ? lastStep.index % n : (lastStep.index - 1 + n) % n;   // it was just ticked or filtered out
+  else j = dir > 0 ? 0 : n - 1;
+  lastStep = { id: order[j], index: j };
+  goTo(order[j]);
+}
+window.taskflowGoTo = (id) => {   // the app opens the board on a task clicked in the hub
+  if (!cy || !byId(id)) { flash(id + " is not in this tracker any more.", true); return; }
+  const i = activeOrder().indexOf(id);
+  if (i >= 0) lastStep = { id, index: i };   // so Next continues from it
+  goTo(id);
+  if (cy.getElementById(id).hasClass("hidden")) flash(id + " is hidden by the filters above.", true);
+};
+function showActive() {   // zoom just enough to show every active task, but no closer than ACTIVE_MAX_ZOOM
+  if (!cy) return;
+  const nodes = activeNodes();
+  if (!nodes.length) { flash(noActiveText(), true); return; }
+  const bb = nodes.boundingBox(), pad = 40;
+  const z = Math.max(cy.minZoom(), Math.min(ACTIVE_MAX_ZOOM, (cy.width() - 2 * pad) / bb.w, (cy.height() - 2 * pad) / bb.h));
+  cy.stop(true);
+  cy.animate({ center: { eles: nodes }, zoom: z }, { duration: 300 });
+}
+function noActiveText() {
+  const hidden = state.items.filter(isActive).length;
+  return hidden ? "No active task is visible: " + hidden + " hidden by the filters." : "No active tasks: nothing assigned to you has all its prerequisites done.";
+}
+function refreshNav() {   // the header's count and position
+  if (!cy) return;
+  const order = activeOrder(), i = order.indexOf(selectedId);
+  el("b-active").replaceChildren(icon("person", 14, "#1d1d1f"), "For you", h("span", { class: "n" }, order.length));
+  el("nav-pos").textContent = i >= 0 ? (i + 1) + " of " + order.length : "";
+}
+function startsText(it) {   // what finishing it starts, behind its rank (score 3 or 2)
+  return it.score === 3 ? h("span", { class: "ic", title: "Finishing this unblocks one of Claude's own tasks" }, icon("laptop", 11, "#55555a"), "Starts Claude's work")
+    : it.score === 2 ? h("span", { class: "ic", title: "Finishing this unblocks a hand-off to a Claude session" }, icon("handoff", 11, "#55555a"), "Starts a hand-off") : [];
+}
+function activeOverview() {
+  const order = activeOrder().map(byId), hidden = state.items.filter(isActive).length - order.length;
+  return [h("h3", {}, "For you (" + order.length + ")"),
+    order.length ? h("div", { class: "todo" }, order.map((it, k) => {
+      const u = unblocks(it);
+      return h("div", { title: it.title, tabindex: "0", onclick: () => { lastStep = { id: it.id, index: k }; goTo(it.id); },
+        onkeydown: (e) => { if (e.key === "Enter") { lastStep = { id: it.id, index: k }; goTo(it.id); } } },
+        h("span", { class: "k" }, k + 1),
+        h("span", { class: "rm" },
+          h("span", { class: "l1" }, h("span", { class: "id" }, it.id), h("b", {}, it.title.length > 90 ? it.title.slice(0, 87) + "…" : it.title),
+            it.priority === "high" ? [" ", icon("star", 11, "#1d1d1f", "High priority")] : []),
+          h("span", { class: "l2" },
+            it.status === "inprogress" || it.status === "waiting" ? h("span", { class: "pill" }, it.status === "inprogress" ? "In progress" : "Waiting") : [],
+            it.priority === "low" ? h("span", { class: "pill" }, "Low priority") : [],
+            (() => { const st = stepsOf(it); return st ? h("span", { class: "steps" + (st[0] === st[1] ? " all" : ""), title: "Checklist: " + st[0] + " of " + st[1] + " steps done" },
+              icon("steps", 11, st[0] === st[1] ? "#13663b" : "#55555a"), st[0] + "/" + st[1]) : []; })(),
+            startsText(it),
+            u ? h("span", { title: u + " unfinished item(s) depend on this, directly or through others" }, "Unblocks " + u) : [])));
+    })) : h("p", { class: "muted" }, "None: nothing of yours has all its prerequisites done."),
+    hidden ? h("p", { class: "muted" }, hidden + " more hidden by the filters above.") : [],
+    h("p", { class: "muted" }, "Ranked: high priority first and low last; then, within each priority, how much finishing it frees Claude to work (each Claude task waiting on it counts 1, shared among everything that task still waits for; a hand-off counts half; not for a task you are waiting on); waiting after the rest; then by what finishing a task starts: Claude's own work, then a hand-off, then anything else; then how much waits downstream; then in progress before open. Next › (key n) and ‹ (key p) step through them in this order; For you (key a) zooms to show them all.")];
+}
+
+function renderTitle(st) {   // the project's emoji and name as the board's title, its file and progress, its deadlines
+  const old = st.project === undefined;   // a server older than this page sends no project, emoji or colour
+  const name = st.project || st.name.replace(/\.taskpaper$/, "").replace(/_?tracker$/i, "").replace(/_/g, " "), c = colorOf(st.project_color, st.project_index), done = st.items.filter((i) => i.done).length;
+  el("title").textContent = name;
+  document.title = name + " — Taskflow";
+  const tile = el("ptile");
+  tile.replaceChildren(st.emoji || h("span", { class: "dot", style: "background:" + c.solid }));
+  tile.style.background = c.tint;
+  el("psub").textContent = st.name + " · " + done + " of " + st.items.length + " done" + (old ? " · this board's server is older than its page: close and reopen the board for its emoji and colour" : "");
+  el("psub").title = st.hub_list_problem || st.path;
+  const dls = Object.entries(st.deadlines || {}).map(([kind, d]) => Object.assign({ kind, days_left: daysLeft(d.date) }, d)).sort((a, b) => (a.date < b.date ? -1 : 1));
+  el("pdls").replaceChildren(...dls.map((d) => h("span", { class: "dl " + d.kind + (d.days_left < 0 ? " passed" : ""),
+    style: d.kind === "hard" ? "background:" + c.solid : "background:" + c.tint + ";color:" + c.ink,
+    title: d.kind === "hard" ? "Hard deadline: external and real; it cannot slip" : "Soft deadline: internal; it may slip a few days, but keep it" },
+    d.kind === "hard" ? "Hard" : "Soft", " · " + fmtDay(d.date, true) + " · " + daysPhrase(d.days_left), d.what ? h("span", { class: "what" }, "· " + d.what) : [])));
+}
+function renderFilterCount() {   // how many of owner, type and session narrow the board, on the Filters button
+  const n = ["f-owner", "f-type", "f-session"].filter((id) => el(id).value).length;
+  el("fcount").textContent = n ? "· " + n : "";
+  el("filters").classList.toggle("on", n > 0);
+}
+function render(st, relayout) {
+  lastFull = Date.now();
+  st.sessions = st.sessions || {};                                        // older servers send no session data
+  st.items.forEach((it) => { it.sessionids = it.sessionids || []; });
+  state = st;
+  renderTitle(st);
+  fillSessionFilter();
+  const key = JSON.stringify(st.items.map((i) => [i.id, i.needs]));
+  if (!cy) {
+    cy = cytoscape({ container: el("cy"), elements: elementsFor(st), style: STYLE, userZoomingEnabled: false, minZoom: 0.12, maxZoom: 2.5 });
+    cy.on("tap", "node", (e) => {
+      const n = e.target, bb = n.boundingBox({ includeLabels: false }), p = e.position, it = byId(n.id());
+      const dx = p.x - bb.x1, dy = p.y - bb.y1, ty = it && it.done ? CHIP_TICK_Y : TICK_Y;   // the tick box, after the bar
+      const inBox = dx >= BAR_W - 2 && dx <= TICK_X + CB_SIZE + 6 && dy >= ty - 6 && dy <= ty + CB_SIZE + 6;
+      if (inBox) toggleDone(n.id()); else select(n.id());
+    });
+    cy.on("dbltap", "node", (e) => { const it = byId(e.target.id()); const d = it && it.docs[0]; if (d) openLink(d.hook || d.file || d.web); });
+    cy.on("mouseover", "node", (e) => { el("cy").style.cursor = "pointer"; hoverEdges(e.target); });
+    cy.on("mouseout", "node", () => { el("cy").style.cursor = ""; hoverEdges(null); });
+    cy.on("tapstart", (e) => { if (e.target === cy) el("cy").style.cursor = "grabbing"; });   // dragging the background
+    cy.on("tapend", (e) => { if (el("cy").style.cursor === "grabbing") el("cy").style.cursor = e.target !== cy && e.target.isNode() ? "pointer" : ""; });
+    cy.on("tap", (e) => { if (e.target === cy) select(null); });
+    cy.on("dragfree", "node", () => { tidy = false; savePositions(); refreshNav(); });   // arranged by hand from now on
+    applyFilters(); placeNodes(false, true);
+  } else {   // a live update: boxes that come back into view (an item reopened elsewhere) go beside their neighbours
+    const known = new Set(cy.nodes().map((n) => n.id())), before = shownIds();
+    if (key !== structureKey || relayout) {
+      cy.elements().remove();
+      cy.add(elementsFor(st));
+      applyFilters(); placeNodes(!!relayout, false);
+    } else {
+      cy.batch(() => st.items.forEach((it) => { const n = cy.getElementById(it.id); n.data(nodeData(it)); n.classes(classesFor(it)); }));
+      applyFilters();
+    }
+    placeShown(cy.nodes().filter((n) => known.has(n.id()) && !before.has(n.id()) && !n.hasClass("hidden")));
+  }
+  structureKey = key;
+  const hb = el("b-hooks");
+  hb.style.display = st.missing_hooks > 0 ? "" : "none";
+  hb.textContent = "Add Hookmark links (" + st.missing_hooks + ")";
+  if (selectedId && !byId(selectedId)) selectedId = null;
+  if (selectedId) cy.getElementById(selectedId).select();
+  updateEdges();
+  renderPanel();
+  refreshNav();
+  pruneImages();
+}
+// Each change to a box's face (a running time ticking each minute, a new status) makes a new image, and Cytoscape keeps
+// every image it has drawn and never lets one go: without this, a board left open with Claude's work running would grow by
+// one image per running task per minute, each up to 0.6 MB decoded (2026-10-11). Faces no box shows any more are dropped
+// from both caches; they are made again if needed.
+function pruneImages() {
+  const used = new Set(cy.nodes().map((n) => n.data("cb")));
+  for (const [k, uri] of boxImages) if (!used.has(uri)) boxImages.delete(k);
+  const cache = cy.renderer && cy.renderer() && cy.renderer().imageCache;   // Cytoscape's own, not part of its API: checked before use
+  if (cache) for (const url of Object.keys(cache)) if (url.startsWith("data:image/svg+xml") && !used.has(url)) delete cache[url];
+}
+
+// ---------------- scrolling and zooming ----------------
+// Scrolling moves the board like a web page: two fingers on a trackpad, a mouse wheel, Shift-wheel sideways.
+// Only a pinch, or ⌘/Ctrl-scroll, zooms. Cytoscape's own wheel handling zooms on every scroll, so it is off (userZoomingEnabled: false).
+// A pinch arrives as gesture events in the app and Safari, and as wheel events with ctrlKey in Chrome and Firefox.
+const ZOOM_PER_PX = 0.01;          // ⌘/Ctrl-scroll and Chrome pinch: zoom factor exp(-deltaY * ZOOM_PER_PX) per event
+const ZOOM_KEY_STEP = 1.25;        // + and − keys: zoom factor per press, about the centre of the board
+let pinchZoom = null, pointer = null;   // zoom when a gesture pinch started; last mouse position in the board
+function boardXY(e) { const r = el("cy").getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+function boardCentre() { return { x: cy.width() / 2, y: cy.height() / 2 }; }
+function zoomStep(f) { if (cy) cy.zoom({ level: cy.zoom() * f, renderedPosition: boardCentre() }); }
+el("cy").addEventListener("mousemove", (e) => { pointer = boardXY(e); }, true);
+el("cy").addEventListener("wheel", (e) => {
+  e.preventDefault();               // no page scroll, browser zoom or swipe back
+  if (!cy) return;
+  const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? cy.height() : 1;   // lines or pages to pixels
+  let dx = e.deltaX * unit, dy = e.deltaY * unit;
+  if (e.ctrlKey || e.metaKey) {
+    if (pinchZoom !== null) return;  // the gesture events below already zoom for this pinch
+    dy = Math.max(-50, Math.min(50, dy));
+    cy.zoom({ level: cy.zoom() * Math.exp(-dy * ZOOM_PER_PX), renderedPosition: boardXY(e) });
+  } else {
+    if (e.shiftKey && !dx) { dx = dy; dy = 0; }
+    cy.panBy({ x: -dx, y: -dy });
+  }
+}, { passive: false });
+el("cy").addEventListener("gesturestart", (e) => { e.preventDefault(); if (cy) pinchZoom = cy.zoom(); });
+el("cy").addEventListener("gesturechange", (e) => {   // zoom about the pointer: gesture events may carry no position
+  e.preventDefault();
+  if (cy && pinchZoom !== null) cy.zoom({ level: pinchZoom * e.scale, renderedPosition: pointer || boardCentre() });
+});
+el("cy").addEventListener("gestureend", (e) => { e.preventDefault(); pinchZoom = null; });
+
+function select(id) {
+  selectedId = id;
+  cy.nodes().unselect();
+  if (id) cy.getElementById(id).select();
+  updateEdges();
+  renderPanel();
+  refreshNav();
+}
+
+// ---------------- side panel ----------------
+function h(tag, attrs, ...kids) {
+  const n = document.createElement(tag);
+  Object.entries(attrs || {}).forEach(([k, v]) => {
+    if (k === "class") n.className = v; else if (k.startsWith("on")) n.addEventListener(k.slice(2), v); else if (v !== false && v != null) n.setAttribute(k, v);
+  });
+  kids.flat(Infinity).forEach((k) => n.append(k instanceof Node ? k : document.createTextNode(String(k))));
+  return n;
+}
+function linkLabel(u) {
+  if (u.startsWith("file://")) { try { return decodeURIComponent(u.split("/").pop()); } catch (e) { return u; } }
+  if (u.startsWith("hook://")) { try { return (new URLSearchParams(u.split("?")[1] || "").get("n") || "Hookmark link") + " (Hookmark)"; } catch (e) { return u; } }
+  try { return new URL(u).host; } catch (e) { return u; }
+}
+function noteLine(text) {
+  const p = h("p", {});
+  const re = /(?:file|hook|https?):\/\/[^\s<>"]+/g;
+  let last = 0, m;
+  while ((m = re.exec(text))) {
+    if (m.index > last) p.append(text.slice(last, m.index));
+    const url = m[0];
+    p.append(h("a", { class: "link", title: url, onclick: () => openLink(url) }, linkLabel(url)));
+    last = m.index + url.length;
+  }
+  if (last < text.length) p.append(text.slice(last));
+  return p;
+}
+function chip(id, extra) {   // a related task: its owner's icon (a tick when done), id and short title; click to go to it
+  const it = byId(id);
+  const cls = "chip" + (it && it.done ? " done" : "") + (!it || !it.done ? (extra === "need" ? " unmet" : "") : "");
+  const ic = it && it.done ? icon("check", 10, "#1a7f4b", "done") : it && whoIcon(it) ? icon(whoIcon(it), 11, "#3a3a3f") : [];
+  return h("span", { class: cls, title: it ? it.title : "unknown id", tabindex: "0", onclick: () => it && select(id), onkeydown: (e) => { if (e.key === "Enter" && it) select(id); } },
+    ic, id, it ? " " + (it.title.length > 26 ? it.title.slice(0, 24) + "…" : it.title) : "");
+}
+const msgBox = () => h("div", { class: "msg", id: "msg" });
+function flash(text, err) {
+  const m = el("msg"); if (!m) return;
+  m.textContent = text; m.className = "msg" + (err ? " err" : ""); m.style.display = "block";
+}
+
+function svgSample(markup) {   // a legend sample CSS cannot draw: a box with cut corners, an arrow
+  const s = h("span", { "aria-hidden": "true", style: "display:inline-flex" });
+  s.innerHTML = markup;
+  return s;
+}
+// a small card with the bar down its left side: solid, striped (blocked), or at half strength on a slim grey chip (done)
+const sampleCard = (color, how) => "<svg width='22' height='" + (how === "done" ? 10 : 14) + "' viewBox='0 0 22 " + (how === "done" ? 10 : 14) + "'><defs><clipPath id='s'><rect x='.5' y='.5' width='21' height='" + (how === "done" ? 9 : 13) + "' rx='3'/></clipPath>" +
+  "<pattern id='p' width='4' height='4' patternUnits='userSpaceOnUse' patternTransform='rotate(45)'><rect width='4' height='4' fill='white'/><rect width='2' height='4' fill='" + color + "'/></pattern></defs>" +
+  "<rect x='.5' y='.5' width='21' height='" + (how === "done" ? 9 : 13) + "' rx='3' fill='" + (how === "blocked" ? "#f6f6f8" : how === "done" ? "#f1f1f4" : "#fff") + "' stroke='#dedee3'/>" +
+  "<rect width='6' height='14' clip-path='url(#s)' fill='" + (how === "blocked" ? "url(#p)" : color) + "'" + (how === "done" ? " fill-opacity='.5'" : "") + "/></svg>";
+const sampleArrow = (color, dashed) => "<svg width='26' height='10' viewBox='0 0 26 10'><path d='M1 5h19' stroke='" + color + "' stroke-width='2'" +
+  (dashed ? " stroke-dasharray='5 4'" : "") + "/><path d='M19 1.5l5 3.5-5 3.5z' fill='" + color + "'/></svg>";
+function renderOverview() {
+  const items = state.items, open = items.filter((i) => !i.done);
+  const count = (f) => items.filter(f).length;
+  const rows = [
+    ["Your reviews, open", count((i) => !i.done && i.type === "review" && i.owner === "me")],
+    ["Claude jobs running (check results when done)", count((i) => !i.done && i.owner === "claude" && i.status === "inprogress")],
+    ["Session hand-offs ready", count((i) => i.ready && i.type === "session")],
+    ["Ready to start (all prerequisites done)", count((i) => i.ready)],
+    ["Blocked by an unfinished prerequisite", count((i) => !i.done && !i.ready)],
+    ["Done", count((i) => i.done)],
+  ];
+  return [
+    h("h2", {}, "Overview"),
+    activeOverview(),
+    h("p", { class: "muted" }, "Tick the checkbox in a box's corner to mark it done (tick again to reopen). Click elsewhere on a box to see its documents, notes and links, change its status, edit what it needs, or add a note. Double-click a box to open its main document. Changes are written straight into " + state.name + ". Arrows point from a prerequisite to the item that needs it."),
+    h("p", { class: "muted" }, "Move the board by scrolling (two fingers on a trackpad, or the mouse wheel; Shift-wheel moves it sideways) or by dragging the empty background. Zoom with a pinch, ⌘-scroll, or the + and − keys; Fit shows everything."),
+    h("div", { class: "counts" }, rows.map(([k, v]) => [h("span", {}, k), h("b", {}, v)])),
+    sessionsOverview(),
+    h("h3", {}, "Legend"),
+    h("div", { class: "legend" },
+      svgSample(sampleCard("#2563eb")), "blue bar: yours (@owner(me))",
+      svgSample(sampleCard("#c96442")), "clay bar: Claude's own (@owner(claude)), run by a session; check its results when done",
+      svgSample(sampleCard("#a21caf")), "purple bar: hand-off (@type(session)), go back to a Claude Code session and instruct it",
+      svgSample(sampleCard("#8e8e93")), "grey bar: another owner, or none",
+      svgSample(sampleCard("#2563eb", "blocked")), "grey card, striped bar: blocked; its last line says what it waits for",
+      h("span", { class: "sw", style: "border:2px solid #2563eb;box-shadow:0 0 0 4px rgba(37,99,235,.16)" }), "outlined in its colour: for you now (yours and ready); Next steps through these",
+      h("span", { class: "sw", style: "border:1px solid #dedee3;background:linear-gradient(to top,#fbe7dc 5px,#fff 5px)" }), "a bar along the bottom: Claude is running it, and for how long (from its registered job, else from when it was set in progress)",
+      h("span", { class: "sw", style: "border:2px solid #d9822b;box-shadow:0 0 0 4px rgba(217,130,43,.18)" }), "amber outline: Claude's run has been quiet for an hour; check it",
+      svgSample(sampleCard("#2563eb", "done")), "slim grey chip: done (hidden unless With done; boxes you tick stay until reload)",
+      h("span", { class: "sw", style: "border:3px solid #1a73e8;box-shadow:0 0 0 3px rgba(26,115,232,.22)" }), "selected: white with a blue border; its chain (what it needs, what waits on it) stays bright and the rest fades until you click the background",
+      svgSample(sampleArrow("#a1a1a6", false)), "arrow from a prerequisite still open",
+      svgSample(sampleArrow("#4e9f6a", true)), "dashed green arrow: the prerequisite is done",
+      icon("person", 15, "#55555a"), "yours (@owner(me))",
+      icon("handoff", 15, "#55555a"), "go back to a Claude Code session (@type(session))",
+      icon("laptop", 15, "#55555a"), "run by a Claude session on its own: check its results when done (@owner(claude))",
+      h("span", {}, "★"), "high priority",
+      svgSample("<svg width='22' height='14' viewBox='0 0 22 14'><rect x='5.5' y='1.5' width='11' height='11' rx='3' fill='none' stroke='#6e6e73' stroke-width='1.3'/><path d='M8.1 7.2l2 2 3.8-4.2' fill='none' stroke='#6e6e73' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/></svg>"),
+      "2/5 at a card's top right: steps of its checklist done (indented \"- \" lines under the task; green when all are)",
+      h("img", { src: CB_PROG, width: 16, height: 16, alt: "" }), "tick box with a dash: in progress; tick it when done"),
+    state.warnings.length ? [h("h3", {}, "Warnings"), state.warnings.map((w) => h("p", { class: "warn" }, w))] : [],
+    msgBox(),
+  ];
+}
+
+const BARE_URL = /^(?:file|hook|https?):\/\/\S+$/;
+function docRow(d) {
+  const target = d.hook || d.file || d.web;
+  return h("div", { class: "doc" },
+    h("a", { title: (d.path || target) + (d.hook ? "\nOpens through Hookmark" : ""), onclick: () => openLink(target) }, d.name),
+    d.hook ? h("span", { class: "tiny" }, "Hookmark") : [],
+    d.file && !d.hook && d.exists && state.hookmark !== false ? h("span", { class: "tiny bad", title: "Run 'Add Hookmark links'" }, "no Hookmark link") : [],
+    d.file && d.exists === false && !d.hook ? h("span", { class: "tiny bad" }, "file not found") : []);
+}
+function sessionRow(sid) {
+  const s = sessionOf(sid);
+  return h("div", { class: "row" },
+    h("span", {}, h("b", {}, s.title || "untitled session"), " ", h("code", { title: sid }, sid.slice(0, 8)),
+      s.found === false ? h("span", { class: "tiny bad", title: "No transcript under ~/.claude/projects (cleaned up, or another machine)" }, " transcript not found") : [],
+      h("span", { class: "live", "data-sid": sid })),   // "running in VS Code", once the server finds it running
+    // Go to session: shown only while the session runs; brings its VS Code panel or Ghostty tab forward
+    h("button", { class: "primary goto", "data-sid": sid, hidden: "hidden", title: "Bring this session's window to the front", onclick: () => gotoSession(sid) }, "Go to session"),
+    h("button", { title: s.resume || "", onclick: () => copyText(s.resume || ("claude --resume " + sid), "Resume command copied. Paste it into a terminal.") }, "Copy resume command"),
+    h("button", { title: sid, onclick: () => copyText(sid, "Session id copied.") }, "Copy id"));
+}
+function sessionsOverview() {
+  const ids = Object.keys(state.sessions || {});
+  if (!ids.length) return [];
+  return [h("h3", {}, "Claude Code sessions"),
+    h("div", { class: "counts" }, ids.map((sid) => {
+      const open = state.items.filter((i) => !i.done && i.sessionids.includes(sid)).length;
+      return [h("span", {}, h("a", { class: "link", title: "Show only this session's items", onclick: () => { el("f-session").value = sid; afterChange(); } }, sessionName(sid))),
+        h("b", { title: "open items" }, open)];
+    }))];
+}
+// Its checklist: the indented "- " lines under the task, as TaskPaper shows them; a step is ticked with
+// @done on its own line, here, in the hub, or in TaskPaper. Deeper steps are indented.
+function checklistBox(it, ro, onTick) {
+  const cl = it.checklist || [];
+  if (!cl.length && (it.done || ro)) return [];
+  const done = cl.filter((c) => c.done).length;
+  const add = h("input", { class: "addstep", id: "i-step", placeholder: cl.length ? "Add a step" : "Add a checklist step", "aria-label": "Add a step to the checklist", disabled: ro,
+    onkeydown: (e) => { if (e.key === "Enter" && e.target.value.trim()) editItem(it.id, "step", { text: e.target.value.trim() }); } });
+  return h("div", { class: "checklist" + (cl.length ? "" : " empty") },
+    h("div", { class: "chead" }, h("b", {}, "Checklist"), cl.length ? h("span", {}, done + " of " + cl.length + " done") : h("span", {}, "none yet")),
+    cl.length ? h("div", { class: "cbar", "aria-hidden": "true" }, h("i", { style: "width:" + Math.round((100 * done) / cl.length) + "%" })) : [],
+    cl.map((c) => h("div", { class: "steprow" },
+      h("label", { class: "step" + (c.done ? " done" : ""), style: c.depth ? "padding-left:" + c.depth * 22 + "px" : false },
+        h("input", { type: "checkbox", checked: c.done ? "checked" : false, disabled: ro, onchange: (e) => onTick(c, e.target.checked) }),
+        h("span", {}, c.text)),
+      ro ? [] : h("button", { class: "x", "aria-label": "Remove the step " + c.text, title: "Remove this step",
+        onclick: () => editItem(it.id, "unstep", { line: c.line, expected: c.raw }) }, "×"))),
+    it.done ? [] : add);
+}
+function clockText(t) {   // 12:40 today, else Oct 9, 12:40
+  const hm = t.toTimeString().slice(0, 5);
+  return t.toDateString() === new Date().toDateString() ? hm : t.toLocaleDateString("en-US", { month: "short", day: "numeric" }) + ", " + hm;
+}
+function activityText(a) {   // what the server knows of a run, as the hub says it: [text, needs a look]
+  if (!a) return ["not known: the server is older than this page", false];
+  if (a.job) return ["a registered " + a.job.kind + " job", false];
+  if (a.registry_unreadable) return ["the job registry could not be read", true];
+  if (!a.sessions) return ["no @sessionid: cannot tell which session runs it", true];
+  if (!a.last) return ["the session's transcript was not found", true];
+  return a.idle ? ["no session activity for " + minutesText(a.quiet_min) + ": still running?", true] : ["session active " + minutesText(a.quiet_min) + " ago", false];
+}
+function runBox(it) {   // Claude's work in progress: how long it has run, and whether its session is still going
+  if (!running(it)) return [];
+  const t = runStart(it), [act, look] = activityText(it.activity);
+  return h("div", { class: "runbox" + (look ? " quiet" : "") },
+    h("div", { class: "shead" }, "Claude's run"),
+    h("dl", {},
+      h("dt", {}, "Running"), h("dd", {}, t ? "since " + clockText(t) + " · " + minutesText((Date.now() - t) / 60000) : "start not recorded"),
+      h("dt", {}, "Activity"), h("dd", { class: look ? "look" : "" }, act)));
+}
+function sessionBox(it) {
+  const handoff = it.type === "session";
+  if (!handoff && !it.tags.session && !it.sessionids.length) return [];
+  const prompts = it.notes.filter((n) => /^Prompt:\s*/.test(n)).map((n) => n.replace(/^Prompt:\s*/, ""));
+  const resume = it.sessionids.length ? null : it.notes.find((n) => /claude --resume/.test(n));
+  return h("div", { class: "sessionbox" },
+    h("div", { class: "shead" }, handoff ? "Go back to this Claude Code session" : "From Claude Code session" + (it.sessionids.length > 1 ? "s" : "")),
+    it.sessionids.length ? it.sessionids.map(sessionRow)
+      : h("div", {}, it.tags.session || "(not named)", " ", h("span", { class: "tiny bad", title: "Add @sessionid(<full session id>) to the item" }, "no @sessionid")),
+    resume ? h("div", { class: "muted" }, h("code", {}, resume)) : [],
+    prompts.map((pr, k) => h("div", { class: "row" },
+      h("button", { class: "primary", onclick: () => copyText(pr) }, prompts.length > 1 ? "Copy prompt " + (k + 1) : "Copy prompt"),
+      h("span", { class: "muted" }, pr.length > 90 ? pr.slice(0, 87) + "…" : pr))));
+}
+async function copyText(s, done) {
+  try {
+    if (NATIVE) NATIVE.postMessage({ kind: "copy", text: s }); else await navigator.clipboard.writeText(s);
+    flash(done || "Prompt copied. Paste it into the session.");
+  }
+  catch (e) { flash("Could not copy automatically; select the prompt in the notes instead.", true); }
+}
+
+const STATUSES = [["open", "Open"], ["inprogress", "In progress"], ["waiting", "Waiting"]];
+function needsChip(id, ro, it) {   // a prerequisite, with × to remove it
+  const c = chip(id, "need");
+  if (!ro) c.append(h("button", { class: "x", "aria-label": "Remove " + id + " from what " + it.id + " needs", title: "Remove from needs",
+    onclick: (e) => { e.stopPropagation(); edit("needs", { needs: it.needs.filter((n) => n !== id) }); } }, icon("x", 10, "#636366")));
+  return c;
+}
+function renderItem(it) {
+  const stateBadge = it.done ? h("span", { class: "badge done" }, "Done " + (it.tags.done || ""))
+    : it.ready ? h("span", { class: "badge ready" }, "Ready") : h("span", { class: "badge blocked" }, "Blocked");
+  const ro = it.readonly, firstDoc = it.docs[0];
+  const who = it.type === "session" ? "hand-off" : it.owner === "me" ? "for you" : it.owner === "claude" ? "Claude's" : it.owner ? "owner: " + it.owner : "";
+  const sub = it.section.split(" / ").slice(1).join(" / ");
+  const addNeed = h("input", { class: "addneed", id: "i-needs", placeholder: "Add an id", "aria-label": "Add a prerequisite by its id", disabled: ro,
+    onkeydown: (e) => { if (e.key === "Enter" && e.target.value.trim()) edit("needs", { needs: it.needs.concat(e.target.value.split(/[\s,;]+/).filter(Boolean)) }); } });
+  return [
+    h("div", { class: "dmeta" }, [it.type, who, it.id, sub].filter(Boolean).join(" · ")),
+    h("label", { class: "donebox" },
+      Object.assign(h("input", { type: "checkbox", id: "c-done", checked: it.done ? "checked" : false, disabled: ro,
+        onchange: (e) => { keepVisible.add(it.id); editItem(it.id, e.target.checked ? "done" : "reopen", { note: el("t-done").value }); } }),
+        { indeterminate: !it.done && it.status === "inprogress" }),   // in progress: the box shows a dash
+      h("h2", {}, it.title)),
+    h("textarea", { id: "t-done", class: "outcome", placeholder: it.done ? "Optional: why it is being reopened (type before unticking)" : "Optional: one-line outcome, saved as a dated note when you tick the box" }),   // under the tick box and the task's name
+    h("div", { class: "badges" }, stateBadge,
+      it.priority === "high" ? h("span", { class: "badge" }, icon("star", 11, "#3a3a3f"), "High priority") : it.priority ? h("span", { class: "badge" }, it.priority === "low" ? "Low priority" : "Priority " + it.priority) : []),
+    it.done ? [] : h("div", { class: "seg", role: "group", "aria-label": "Status" }, STATUSES.map(([v, name]) =>
+      h("button", { "aria-pressed": (it.status || "open") === v ? "true" : "false", disabled: ro, onclick: () => { if ((it.status || "open") !== v) edit("status", { status: v }); } }, name))),
+    firstDoc ? h("div", { class: "actions" }, h("button", { class: "primary", title: (firstDoc.path || firstDoc.hook || firstDoc.file || firstDoc.web) + (firstDoc.hook ? "\nOpens through Hookmark" : ""),
+      onclick: () => openLink(firstDoc.hook || firstDoc.file || firstDoc.web) }, icon("doc", 14, "#ffffff"), "Open " + (firstDoc.name.length > 34 ? firstDoc.name.slice(0, 32) + "…" : firstDoc.name))) : [],
+    checklistBox(it, ro, (c, done) => editItem(it.id, "check", { line: c.line, expected: c.raw, done })),
+    h("h3", {}, "Add a note"), h("textarea", { id: "t-note", placeholder: "Saved as a dated line under the task" }),   // right below the checklist
+    h("div", { class: "row" }, h("button", { disabled: ro, onclick: () => edit("note", { note: el("t-note").value }) }, "Add note")),
+    msgBox(),
+    runBox(it),   // Claude's run and its session come before Needs too
+    sessionBox(it),
+    h("dl", { class: "facts" },
+      h("dt", {}, "Needs"), h("dd", {}, h("div", { class: "chips" }, it.needs.map((n) => needsChip(n, ro, it)), addNeed)),
+      h("dt", {}, "Needed by"), h("dd", {}, it.needed_by.length ? h("div", { class: "chips" }, it.needed_by.map((n) => chip(n))) : h("span", { class: "muted" }, "Nothing")),
+      h("dt", {}, "Documents"), h("dd", {}, it.docs.length ? h("div", { class: "docs" }, it.docs.map(docRow)) : h("span", { class: "muted" }, "None linked")),
+      h("dt", {}, "Notes"), h("dd", {}, (() => { const ns = it.notes.filter((n) => !BARE_URL.test(n)); return ns.length ? h("div", { class: "notes" }, ns.map(noteLine)) : h("span", { class: "muted" }, "No notes"); })())),
+    ro ? h("p", { class: "warn" }, "This item is read-only here (missing or duplicate @id); edit it in TaskPaper.") : [],
+    h("details", { class: "line" }, h("summary", {}, "Line in the file"), h("p", {}, "line " + (it.line + 1) + ": " + it.raw.trim())),
+  ];
+}
+
+const APP_NAME = { vscode: "VS Code", ghostty: "Ghostty", terminal: "Terminal" };
+function markRunning(sids, url, still) {   // reveal Go to session for the sessions that run now; still(): the same task is shown
+  if (!sids.length) return;
+  api(url + "ids=" + encodeURIComponent(sids.join(","))).then((r) => {
+    if (!r.ok || !still()) return;
+    Object.entries(r.data).forEach(([sid, x]) => document.querySelectorAll("[data-sid='" + sid + "']").forEach((n) => {
+      if (n.classList.contains("goto")) n.hidden = false;
+      else n.textContent = " ● running in " + (APP_NAME[x.app] || "another app") + (x.status === "busy" ? ", working" : "");
+    }));
+  });
+}
+async function gotoSession(sid) {
+  const r = await api("/api/session/focus", { sid });
+  flash(r.ok ? r.data.message : r.data.error || "Error " + r.status, !r.ok);
+}
+function renderPanel() {
+  const p = el("panel"), it = selectedId && byId(selectedId);
+  p.replaceChildren(...[].concat(it ? renderItem(it) : renderOverview()).flat(Infinity));
+  if (it) markRunning(it.sessionids, "/api/sessions/running?", () => selectedId === it.id);
+}
+
+async function edit(op, args) { return editItem(selectedId, op, args); }
+function toggleDone(id) {
+  const it = byId(id);
+  if (!it || it.readonly) { flash("This item is read-only here; edit it in TaskPaper.", true); return; }
+  keepVisible.add(id);
+  editItem(id, it.done ? "reopen" : "done", {});
+}
+async function editItem(id, op, args) {
+  const it = byId(id);
+  if (!it || busy) return;
+  busy = true;
+  const r = await api("/api/edit", { id: it.id, expected_line: it.raw, op, args });
+  busy = false;
+  if (r.ok) { render(r.data); flash("Saved to " + r.data.name + "."); setSync("saved " + new Date().toLocaleTimeString()); }
+  else if (r.status === 409) { if (r.data.state) render(r.data.state); flash(r.data.error + " The board has been refreshed; redo the change if it is still needed.", true); }
+  else flash(r.data.error || "Error " + r.status, true);
+}
+async function openLink(url) {
+  const r = await api("/api/open", { url });
+  if (!r.ok) flash(r.data.error || "Could not open the link.", true);
+  else if (r.data.message) flash(r.data.message);   // an app or script: shown in Finder, not run
+}
+
+function setSync(t) { el("sync").textContent = t; el("sync").classList.toggle("off", /not reachable|not running/.test(t)); }
+let lastFull = 0;   // when the state was last loaded: Claude's running times and quiet flags are refreshed once a minute
+async function poll() {
+  const r = await api("/api/version");
+  if (!r.ok) { setSync("server not reachable"); return; }
+  if (!state || r.data.hash !== state.hash) {
+    const s = await api("/api/state");
+    if (s.ok) { render(s.data); setSync("updated from file " + new Date().toLocaleTimeString()); }
+  } else if (state.items.some(running) && Date.now() - lastFull > 60000) {
+    const s = await api("/api/state");
+    if (s.ok) render(s.data);
+    setSync("in sync " + new Date().toLocaleTimeString());
+  } else setSync("in sync " + new Date().toLocaleTimeString());
+}
+
+["f-done", "f-ready", "f-owner", "f-type", "f-session"].forEach((id) => el(id).addEventListener("change", afterChange));
+el("f-search").addEventListener("input", () => applyFilters());
+el("b-layout").addEventListener("click", () => { runLayout(); afterChange(); });
+function syncShow() {   // the All open / Ready only / With done switch shows the two filters it sets
+  const ready = el("f-ready").checked, done = el("f-done").checked;
+  el("v-open").setAttribute("aria-pressed", !ready && !done ? "true" : "false");
+  el("v-ready").setAttribute("aria-pressed", ready && !done ? "true" : "false");
+  el("v-done").setAttribute("aria-pressed", done ? "true" : "false");
+}
+[["v-open", false, false], ["v-ready", true, false], ["v-done", false, true]].forEach(([id, ready, done]) => el(id).addEventListener("click", () => {
+  if (!cy) return;
+  el("f-ready").checked = ready; el("f-done").checked = done;
+  afterChange();
+}));
+document.addEventListener("click", (e) => { const f = el("filters"); if (f.open && !f.contains(e.target)) f.open = false; });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") el("filters").open = false; });
+el("b-active").addEventListener("click", () => showActive());
+el("b-next").addEventListener("click", () => stepActive(1));
+el("b-prev").addEventListener("click", () => stepActive(-1));
+document.addEventListener("keydown", (e) => {   // n, p, a: next, previous, all active tasks; + and −: zoom the board; not while typing
+  const t = e.target;
+  if (e.metaKey || e.ctrlKey || e.altKey || t.isContentEditable || t.tagName === "TEXTAREA" || t.tagName === "SELECT"
+    || (t.tagName === "INPUT" && !["checkbox", "radio", "button"].includes(t.type))) return;
+  const zoomIn = () => zoomStep(ZOOM_KEY_STEP), zoomOut = () => zoomStep(1 / ZOOM_KEY_STEP);
+  const act = { n: () => stepActive(1), p: () => stepActive(-1), a: () => showActive(), "+": zoomIn, "=": zoomIn, "-": zoomOut, "_": zoomOut }[e.key];
+  if (act) { e.preventDefault(); act(); }
+});
+el("b-fit").addEventListener("click", () => cy && cy.fit(visibleElements(), 30));
+el("b-tracker").addEventListener("click", () => api("/api/open", { url: "tracker" }));
+el("b-hooks").addEventListener("click", async () => {
+  if (busy) return;
+  busy = true; el("b-hooks").disabled = true; el("b-hooks").textContent = "Adding Hookmark links…";
+  const r = await api("/api/add-hooks", {});
+  busy = false; el("b-hooks").disabled = false;
+  if (r.data && r.data.state) render(r.data.state);
+  if (r.ok) flash("Added " + r.data.added + " Hookmark link(s)." + (r.data.problems.length ? " Problems: " + r.data.problems.join("; ") : ""), r.data.problems.length > 0);
+  else flash(r.data.error || "Could not add Hookmark links.", true);
+});
+
+(async function start() {
+  const s = await api("/api/state");
+  if (!s.ok) { el("panel").textContent = s.data.error || "Could not load the tracker."; return; }
+  render(s.data);
+  setSync("loaded " + new Date().toLocaleTimeString());
+  if (NATIVE) NATIVE.postMessage({ kind: "loaded", items: s.data.items.length, sessions: Object.keys(s.data.sessions || {}).length, savedPositions: SAVED_POSITIONS });
+  setInterval(poll, POLL_MS);
+})();
+</script>
+</body>
+</html>

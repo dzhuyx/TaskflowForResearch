@@ -1,0 +1,17 @@
+const out = {}, check = (name, ok, detail) => { out[name] = ok ? "PASS" : "FAIL " + JSON.stringify(detail); };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const until = async (f, ms) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await sleep(100); return f(); };
+const errors = []; window.addEventListener("error", (e) => errors.push(e.message));
+const det = () => document.getElementById("detail");
+const rowOf = (id) => [...document.querySelectorAll("#tasks .todo div, #projects .running div")].find((r) => r.querySelector(".id").textContent === id);
+await until(() => rowOf("al.1"), 6000);
+check("01 the task's row shows its checklist progress", rowOf("al.1").querySelector(".steps") && rowOf("al.1").querySelector(".steps").textContent === "0/2", rowOf("al.1").textContent);
+rowOf("al.1").click(); await until(() => det().querySelector("h2") && det().querySelector("h2").textContent === "First review", 3000);
+const box = () => det().querySelector(".checklist");
+check("02 its details list the steps", !!box() && [...box().querySelectorAll(".step")].map((s) => s.textContent).join("|") === "Outline the comments|Send them" && box().textContent.includes("0 of 2 done"), box() && box().textContent);
+box().querySelector(".step input").click();
+await until(() => box() && box().textContent.includes("1 of 2 done"), 5000);
+check("03 ticking a step from the hub writes it, and the row follows", !!box() && box().textContent.includes("1 of 2 done") && rowOf("al.1").querySelector(".steps").textContent === "1/2" && box().querySelector(".step input").checked, box() && box().textContent);
+check("04 the task is not ticked", !det().querySelector("#c-done").checked, "");
+check("05 no page errors", errors.length === 0, errors);
+return JSON.stringify(out, null, 1);

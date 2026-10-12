@@ -1,0 +1,17 @@
+Fixture tracker:
+Work:
+	- Done step 1 @type(work) @owner(claude) @id(f.1) @done(2026-10-01)
+	- Done step 2 @type(work) @owner(claude) @id(f.2) @done(2026-10-02) @needs(f.1)
+	- Done step 3 @type(work) @owner(claude) @id(f.3) @done(2026-10-03) @needs(f.2)
+	- Done step 4 @type(work) @owner(claude) @id(f.4) @done(2026-10-04) @needs(f.3)
+	- Done step 5 @type(work) @owner(claude) @id(f.5) @done(2026-10-05) @needs(f.4)
+	- Done step 6 @type(work) @owner(claude) @id(f.6) @done(2026-10-06) @needs(f.5)
+	- Review A @type(review) @owner(me) @id(f.7) @needs(f.6)
+	- Review B @type(review) @owner(me) @id(f.8) @needs(f.6)
+	- Hand back @type(session) @owner(me) @id(f.9) @needs(f.7, f.8)
+	- Next run @type(work) @owner(claude) @id(f.10) @needs(f.9)
+	- Side job @type(work) @owner(claude) @id(g.1)
+	- Side review @type(review) @owner(me) @id(g.2) @needs(g.1)
+	- Standalone one @type(review) @owner(me) @id(s.1)
+	- Standalone two @type(work) @owner(me) @id(s.2)
+	- Standalone done @type(work) @owner(me) @id(s.3) @done(2026-10-05)

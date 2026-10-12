@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>Taskflow</string>
+	<key>CFBundleDisplayName</key>
+	<string>Taskflow</string>
+	<key>CFBundleIdentifier</key>
+	<string>local.taskflow</string>
+	<key>CFBundleExecutable</key>
+	<string>Taskflow</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundleVersion</key>
+	<string>@BUILD@</string>
+	<key>CFBundleIconFile</key>
+	<string>Taskflow</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSSupportsAutomaticTermination</key>
+	<false/>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Go to session brings a Claude Code session's Ghostty tab to the front.</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>Built @DATE@ with Claude Code. Board: Cytoscape.js, dagre, cytoscape-dagre (MIT).</string>
+	<key>TaskflowPython</key>
+	<string>@PYTHON@</string>
+	<key>TaskflowScript</key>
+	<string>@SCRIPT@</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>Taskflow tracker link</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>taskflow</string>
+			</array>
+		</dict>
+	</array>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>TaskPaper tracker</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.hogbaysoftware.taskpaper</string>
+			</array>
+			<key>NSDocumentClass</key>
+			<string>TrackerDocument</string>
+		</dict>
+	</array>
+	<key>UTImportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.hogbaysoftware.taskpaper</string>
+			<key>UTTypeDescription</key>
+			<string>TaskPaper document</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.plain-text</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>taskpaper</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
+</dict>
+</plist>

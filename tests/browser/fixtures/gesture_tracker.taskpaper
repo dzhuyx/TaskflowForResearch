@@ -1,0 +1,4 @@
+Gesture test:
+	- First item @id(gt.1) @type(review) @owner(me)
+	- Second item @id(gt.2) @type(work) @owner(claude) @needs(gt.1)
+	- Third item @id(gt.3) @type(session) @owner(me) @needs(gt.2)

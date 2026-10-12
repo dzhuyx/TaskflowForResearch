@@ -1,0 +1,10 @@
+const out = {}, check = (name, ok, detail) => { out[name] = ok ? "PASS" : "FAIL " + JSON.stringify(detail); };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const until = async (f, ms) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await sleep(100); return f(); };
+const det = () => document.getElementById("detail"), box = () => document.getElementById("c-done");
+const rowOf = (id) => [...document.querySelectorAll("#tasks .todo div, #projects .running div")].find((r) => r.querySelector(".id").textContent === id);
+rowOf("de.1").click(); await until(() => det().querySelector("h2") && det().querySelector("h2").textContent === "Quiet run", 3000);
+check("1 in-progress task: the details box shows the dash", box().indeterminate && !box().checked && box().title === "In progress: tick to mark done", [box().indeterminate, box().checked, box().title]);
+rowOf("al.1").click(); await until(() => det().querySelector("h2").textContent === "First review", 3000);
+check("2 open task: plain box", !box().indeterminate && !box().checked, [box().indeterminate, box().checked]);
+return JSON.stringify(out, null, 1);

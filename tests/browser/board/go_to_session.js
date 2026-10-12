@@ -1,0 +1,17 @@
+const out = {}, check = (name, ok, detail) => { out[name] = ok ? "PASS" : "FAIL " + JSON.stringify(detail); };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const until = async (f, ms) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await sleep(100); return f(); };
+const errors = []; window.addEventListener("error", (e) => errors.push(e.message));
+for (let k = 0; k < 40 && !(window.cy && cy.nodes().length); k++) await sleep(100);
+await sleep(500);
+const shown = (n) => !!n && getComputedStyle(n).display !== "none" && n.offsetParent !== null;
+const btn = () => document.querySelector("#panel .sessionbox .goto"), live = () => document.querySelector("#panel .sessionbox .live");
+select("f.8");
+await until(() => btn() && !btn().hidden, 8000);
+check("01 a running session shows Go to session, and where it runs", shown(btn()) && /running in Ghostty/.test(live().textContent), [btn() && btn().hidden, live() && live().textContent]);
+select("f.7"); await sleep(3000);
+check("02 a session that is not running shows no button; Copy resume command stays", !!btn() && !shown(btn()) && live().textContent === "" && [...document.querySelectorAll("#panel .sessionbox button")].some((b) => b.textContent === "Copy resume command"), [btn() && btn().hidden]);
+const order = [...document.querySelectorAll("#panel .sessionbox button")].map((b) => b.textContent);
+check("03 the button sits first in its row", order[0] === "Go to session", order);
+check("04 no page errors", errors.length === 0, errors);
+return JSON.stringify(out, null, 1);
