@@ -175,7 +175,7 @@ tests/browser/run_all.sh          # the board, hub and Progress view in WebKit (
 
 ## Saying thanks
 
-If you find this useful, you can show your appreciation by forking the repository, so that I know it has helped someone.
+If you find this useful, you can show your appreciation by forking and/or starring the repository, so that I know it has helped someone.
 
 ## Licence
 
