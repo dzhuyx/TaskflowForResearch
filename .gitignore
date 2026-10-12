@@ -11,3 +11,6 @@ launchers/
 *.command
 # the WebKit probe, built by tests/browser/run_all.sh
 tests/browser/.build/
+# copies a cloud-sync conflict leaves beside a file ("build_app 2.sh"): never versioned
+* [0-9].*
+* [0-9]
