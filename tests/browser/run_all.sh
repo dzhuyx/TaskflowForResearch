@@ -58,6 +58,7 @@ board gestures gesture_tracker.taskpaper
 board goto gesture_tracker.taskpaper
 board tickbox box_tracker.taskpaper
 board rank rank_tracker.taskpaper
+board docs fix_tracker.taskpaper docs
 hub - - 12 tests
 hub - - - emoji
 hub - - - deadline
@@ -69,6 +70,7 @@ hub activity - - box_hub
 hub - hub_redesign - redesign
 hub activity - - order
 hub - hub_checklist - checklist
+hub - hub_docs - docs
 if [ -n "$SID" ]; then
   board go_to_session fix_tracker.taskpaper go_to_session
   hub - hub_go_to_session - go_to_session

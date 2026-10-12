@@ -167,6 +167,18 @@
   .badge.done { color: var(--muted); }
   .actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
   .actions .button, .actions button { min-height: 40px; padding: 0 14px; font-size: 13px; border-radius: 11px; }
+  .opengroup { position: relative; display: inline-flex; }   /* Open <main document> | All N: the list of its documents */
+  .opengroup > button.opendoc { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+  details.docmenu > summary { list-style: none; box-sizing: border-box; display: flex; align-items: center; gap: 5px; min-height: 40px; height: 100%; padding: 0 12px;
+    background: var(--accent); color: #fff; border: 1px solid var(--accent); border-left-color: rgba(255,255,255,.45); border-radius: 0 11px 11px 0;
+    font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  details.docmenu > summary::-webkit-details-marker { display: none; }
+  details.docmenu > summary:hover, details.docmenu[open] > summary { filter: brightness(.92); }
+  details.docmenu .menu { position: absolute; left: 0; top: calc(100% + 4px); z-index: 30; width: max-content; min-width: 100%; max-width: 360px; padding: 4px;
+    background: #fff; border: 1px solid var(--line2); border-radius: 11px; box-shadow: 0 10px 28px rgba(0,0,0,.14); display: flex; flex-direction: column; }
+  .actions details.docmenu .menu button { justify-content: flex-start; flex-wrap: wrap; text-align: left; border: 0; border-radius: 8px; min-height: 34px; padding: 5px 10px; font-size: 12.5px; font-weight: 500; }
+  .actions details.docmenu .menu button:hover { background: #eef3fe; }
+  details.docmenu .dname { word-break: break-all; }
   textarea { font: inherit; width: 100%; min-height: 48px; resize: vertical; border: 1px solid var(--line2); border-radius: 11px; padding: 8px 10px; }
   textarea.outcome { font-size: 12.5px; }
   .donebox + textarea.outcome { display: block; width: calc(100% - 34px); margin: -2px 0 10px 34px; }   /* under the task's name, lined up with it, as on the board */
@@ -337,6 +349,7 @@ const ICONS = {   // 16x16 line icons; text never relies on them alone
   plus: [["path", { d: "M8 3v10M3 8h10" }]],
   check: [["path", { d: "M3 8.5l3.2 3.2L13 4.8" }]],
   doc: [["path", { d: "M4 1.5h5.5L13 5v9.5H4z" }], ["path", { d: "M9.5 1.5V5H13" }]],
+  chev: [["path", { d: "M4 6l4 4 4-4" }]],
   star: [["path", { d: "M8 1.8l1.9 4 4.3.5-3.2 3 .9 4.3L8 11.4l-3.9 2.2.9-4.3-3.2-3 4.3-.5z", fill: true }]],
   dots: [["circle", { cx: 3.5, cy: 8, r: 1.3, fill: true }], ["circle", { cx: 8, cy: 8, r: 1.3, fill: true }], ["circle", { cx: 12.5, cy: 8, r: 1.3, fill: true }]],
 };
@@ -503,8 +516,8 @@ function colorEditor(p) {   // eight swatches; one another project has is shown 
     h("div", { class: "muted", style: "font-size:11.5px" }, "Its colour in the hub and on its board. A new project gets the first colour no other project has."),
     colorErr ? h("p", { class: "err" }, colorErr) : []);
 }
-function closeMenus(keep) { document.querySelectorAll("details.pmenu[open]").forEach((d) => { if (d !== keep) d.open = false; }); }
-document.addEventListener("click", (e) => closeMenus(e.target.closest ? e.target.closest("details.pmenu") : null));
+function closeMenus(keep) { document.querySelectorAll("details.pmenu[open], details.docmenu[open]").forEach((d) => { if (d !== keep) d.open = false; }); }
+document.addEventListener("click", (e) => closeMenus(e.target.closest ? e.target.closest("details.pmenu, details.docmenu") : null));
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenus(null); });
 function projectMenu(p) {   // ⋯: deadlines, emoji, archive
   return h("details", { class: "pmenu" },
@@ -739,6 +752,25 @@ function flash(text, err) {
   m.textContent = text; m.className = "msg" + (err ? " err" : ""); m.style.display = "block";
 }
 const BARE_URL = /^(?:file|hook|https?):\/\/\S+$/;
+// The Open button opens the task's first document, its main one; with two or more, All N beside it lists every one,
+// the main one first, in the order they are linked
+let docsOpen = null;   // the task whose list of documents is open, so that a redraw keeps it open
+function openDocs(it, key) {
+  const go = (d) => d.hook || d.file || d.web, tip = (d) => (d.path || go(d)) + (d.hook ? "\nOpens through Hookmark" : "");
+  const main = it.docs[0], n = it.docs.length;
+  const btn = h("button", { class: "primary opendoc", title: tip(main), onclick: () => openLink(go(main)) },
+    icon("doc", 14, "#ffffff"), "Open " + (main.name.length > 34 ? main.name.slice(0, 32) + "…" : main.name));
+  if (n < 2) return btn;
+  return h("div", { class: "opengroup" }, btn,
+    h("details", { class: "docmenu", open: docsOpen === key ? "open" : false,
+        ontoggle: (e) => { if (e.target.open) docsOpen = key; else if (docsOpen === key) docsOpen = null; } },
+      h("summary", { title: "All " + n + " documents of this task, the main one first" }, "All " + n, icon("chev", 12, "#ffffff")),
+      h("div", { class: "menu" }, it.docs.map((d, i) => h("button", { title: tip(d), onclick: (e) => { e.currentTarget.closest("details").open = false; openLink(go(d)); } },
+        h("span", { class: "dname" }, d.name),
+        i === 0 ? h("span", { class: "tiny" }, "main") : [],
+        d.folder ? h("span", { class: "tiny" }, "folder") : [],
+        d.exists === false ? h("span", { class: "tiny bad" }, "file not found") : [])))));
+}
 function docRow(d) {
   const target = d.hook || d.file || d.web;
   return h("div", { class: "doc" },
@@ -875,8 +907,7 @@ function renderItem(it) {
       it.priority === "high" ? h("span", { class: "badge" }, icon("star", 11, "#3a3a3f"), "High priority") : it.priority ? h("span", { class: "badge" }, it.priority === "low" ? "Low priority" : "Priority " + it.priority) : []),
     (() => { const n = activityNote(detail.activity); return n ? h("p", { class: n[1] ? "warn" : "muted" }, n[0].charAt(0).toUpperCase() + n[0].slice(1) + (detail.activity.session ? " (session " + detail.activity.session.slice(0, 8) + ")" : "")) : []; })(),
     h("div", { class: "actions" },
-      firstDoc ? h("button", { class: "primary opendoc", title: (firstDoc.path || firstDoc.hook || firstDoc.file || firstDoc.web) + (firstDoc.hook ? "\nOpens through Hookmark" : ""),
-        onclick: () => openLink(firstDoc.hook || firstDoc.file || firstDoc.web) }, icon("doc", 14, "#ffffff"), "Open " + (firstDoc.name.length > 34 ? firstDoc.name.slice(0, 32) + "…" : firstDoc.name)) : [],
+      firstDoc ? openDocs(it, detail.path + "#" + it.id) : [],
       h("a", { class: "button board" + (firstDoc ? "" : " primary"), href: detail.url, title: "Open it on its board, to change its status, needs or notes" }, "Open on its board")),
     checklistBox(it),
     msgBox(),

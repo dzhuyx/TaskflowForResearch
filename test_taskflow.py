@@ -272,6 +272,98 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(code, 403)
 
 
+class LinkDocTests(unittest.TestCase):
+    """--link and --unlink: the first linked document is the item's main one, which its Open button opens."""
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp()).resolve()
+        for n in ("report_20261011_v1.md", "report_20261012_v2.md", "summary.m4a"):
+            (self.dir / n).write_text("x")
+        (self.dir / "results").mkdir()
+        self.url = lambda n: tf.file_url(self.dir / n)
+        self.hook = lambda u: "hook://file/H" + str(len(u)) + "?n=" + urllib.parse.quote(u.rsplit("/", 1)[1])
+        self.text = ("Reviews:\n\t- Review the report @type(review) @owner(me) @id(r.1)\n"
+                     f"\t\t{self.url('results')}\n\t\t{self.hook(self.url('results'))}\n\t\tQuestions: §2.\n"
+                     f"\t\t{self.url('report_20261011_v1.md')}\n\t- Other @type(work) @owner(claude) @id(r.2)\n")
+
+    def tearDown(self):
+        shutil.rmtree(self.dir)
+
+    def docs(self, text):
+        return [d["name"] for d in tf.build_state(text, self.dir / "t.taskpaper", with_sessions=False)["items"][0]["docs"]]
+
+    def test_link_puts_a_new_document_first_with_its_hook_line(self):
+        new, said, problems = tf.link_doc(self.text, "r.1", str(self.dir / "report_20261012_v2.md"), get_hook=self.hook)
+        self.assertEqual(self.docs(new), ["report_20261012_v2.md", "results", "report_20261011_v1.md"])
+        lines = new.split("\n")
+        self.assertEqual(lines[2:4], ["\t\t" + self.url("report_20261012_v2.md"), "\t\t" + self.hook(self.url("report_20261012_v2.md"))])
+        self.assertIn("main document of r.1", said)
+        self.assertEqual(problems, [])
+        self.assertEqual([i["id"] for i in tf.parse(new)], ["r.1", "r.2"])
+
+    def test_link_moves_a_linked_document_with_its_hook_line(self):
+        calls = []
+        new, _, _ = tf.link_doc(self.text, "r.1", str(self.dir / "results"), also=True, get_hook=lambda u: calls.append(u) or "hook://x")
+        self.assertEqual(self.docs(new), ["report_20261011_v1.md", "results"])
+        self.assertEqual(calls, [])                                                  # its own hook line moved with it
+        self.assertEqual(new.count(self.hook(self.url("results"))), 1)
+        self.assertEqual(new.split("\n")[2:5], ["\t\tQuestions: §2.", "\t\t" + self.url("report_20261011_v1.md"), "\t\t" + self.url("results")])
+        again, said, _ = tf.link_doc(new, "r.1", str(self.dir / "results"), also=True, get_hook=self.hook)
+        self.assertEqual((again, "nothing changed" in said), (new, True))           # already after the others
+        same, said, _ = tf.link_doc(self.text, "r.1", str(self.dir / "results"), get_hook=self.hook)
+        self.assertEqual((same, "nothing changed" in said), (self.text, True))       # already the main one
+
+    def test_unlink_removes_the_file_and_hook_lines(self):
+        new = tf.unlink_doc(self.text, "r.1", str(self.dir / "results"))
+        self.assertEqual(self.docs(new), ["report_20261011_v1.md"])
+        self.assertNotIn("hook://", new)
+        with self.assertRaises(tf.EditError):
+            tf.unlink_doc(new, "r.1", str(self.dir / "results"))
+        with self.assertRaises(tf.EditError):
+            tf.link_doc(self.text, "r.9", str(self.dir / "results"))
+
+    def test_check_warns_when_the_open_button_would_open_the_wrong_document(self):
+        warn = lambda text: [w for w in tf.build_state(text, self.dir / "t.taskpaper", with_sessions=False)["warnings"] if "first document" in w]
+        self.assertEqual(len(warn(self.text)), 1)                                    # a folder before the report
+        self.assertIn("is a folder", warn(self.text)[0])
+        fixed, _, _ = tf.link_doc(self.text, "r.1", str(self.dir / "report_20261011_v1.md"), get_hook=self.hook)
+        self.assertEqual(warn(fixed), [])
+        audio, _, _ = tf.link_doc(fixed, "r.1", str(self.dir / "summary.m4a"), get_hook=self.hook)
+        self.assertIn("an audio or video file", warn(audio)[0])
+        older, _, _ = tf.link_doc(fixed, "r.1", str(self.dir / "report_20261012_v2.md"), also=True, get_hook=self.hook)
+        self.assertIn("older than report_20261012_v2.md", warn(older)[0])            # v1 is first, v2 after it
+        newer, _, _ = tf.link_doc(older, "r.1", str(self.dir / "report_20261012_v2.md"), get_hook=self.hook)
+        self.assertEqual(warn(newer), [])
+        (self.dir / "more results").mkdir()
+        only_folders = "Reviews:\n\t- Results @type(review) @id(r.1)\n\t\t" + self.url("results") + "\n\t\t" + self.url("more results") + "\n"
+        self.assertEqual(warn(only_folders), [])                                     # nothing better to put first
+        self.assertEqual(warn(self.text.replace("@id(r.1)", "@id(r.1) @done(2026-10-12)")), [])   # a done item is left alone
+
+    def test_check_warns_when_a_review_links_another_reviews_document(self):
+        two = self.text + ("\t- Review the other report @type(review) @owner(me) @id(r.3)\n"
+                           f"\t\t{self.url('report_20261012_v2.md')}\n")
+        linked, _, _ = tf.link_doc(two, "r.1", str(self.dir / "report_20261012_v2.md"), also=True, get_hook=self.hook)
+        warn = lambda text: [w for w in tf.build_state(text, self.dir / "t.taskpaper", with_sessions=False)["warnings"] if "the main document of the open review" in w]
+        self.assertEqual(len(warn(linked)), 1)
+        self.assertIn("r.1 links report_20261012_v2.md, the main document of the open review r.3", warn(linked)[0])
+        self.assertEqual(warn(two), [])
+        self.assertEqual(warn(linked.replace("@id(r.3)", "@id(r.3) @done(2026-10-12)")), [])   # its review is finished
+
+    def test_link_from_the_command_line_writes_with_a_backup(self):
+        t = self.dir / "t_tracker.taskpaper"
+        t.write_text(self.text, encoding="utf-8")
+        old_root, tf.BACKUP_ROOT = tf.BACKUP_ROOT, self.dir / "backups"
+        try:
+            with mock.patch.object(tf, "hookmark_url", self.hook):
+                said = tf.link_item(t, "r.1", str(self.dir / "report_20261011_v1.md"))
+            self.assertIn("main document of r.1", said)
+            self.assertEqual(self.docs(t.read_text(encoding="utf-8")), ["report_20261011_v1.md", "results"])
+            self.assertTrue(any((self.dir / "backups").rglob("*")))
+            with self.assertRaises(SystemExit):
+                tf.link_item(t, "r.1", str(self.dir / "missing.pdf"))
+        finally:
+            tf.BACKUP_ROOT = old_root
+
+
 class OpenLinkTests(unittest.TestCase):
     """A link that would run something (an app, a script, an installer) is shown in Finder, never opened."""
     def setUp(self):

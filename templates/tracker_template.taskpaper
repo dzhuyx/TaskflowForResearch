@@ -9,10 +9,10 @@
 	Last updated: {TODAY}
 
 What belongs here:
-	Review items: one per document the user needs to read. The note says where in the document its questions are; the user answers them in the document, not here.
-	Session hand-offs: one per return to a Claude Code session to give it its next instructions, gated by @needs on the reviews that must be finished first.
-	Work packages: one per coherent piece of work by a session (or by the user), gated by the hand-off that starts it. No individual questions, decisions or small steps.
-	Checkpoint reports: at intermediate steps, the related open Claude sessions huddle (session-huddle skill) and their results come to the user as a report document to review, discuss and decide on, as a review item with @needs on each Claude task whose results it reports. One shared report may gather several Claude tasks, from several sessions; separate topics get separate reports. The next tasks that depend on the user's decisions are gated on the report's review.
+	Review items: one per document the user needs to read, titled "Review <document>". The document holds every question or decision for the user, each with its options and a recommendation, and the user answers in the user's comments in it (or in chat, and the session then writes the user's answer into the document). The note says where the questions are. Ticking a review means read and commented.
+	Session hand-offs: one per return to a Claude Code session after a review, titled "Go back to <session>: act on your comments in <document>", gated by @needs on that review (or several), with the session id, the resume command and a Prompt line to paste.
+	Work packages: one per coherent piece of work by a session (or by the user), gated by the hand-off that starts it; their results come back as a document, its review and the next hand-off. No items for individual questions, decisions or small steps.
+	Checkpoint reports: at intermediate steps, the related open Claude sessions huddle (session-huddle skill) and their results come to the user as a report document to review, discuss and decide on, as a review item with @needs on each Claude task whose results it reports. One shared report may gather several Claude tasks, from several sessions; separate topics get separate reports. A hand-off back to each session that acts on the report follows its review, and the next tasks that depend on the user's answers are gated on those hand-offs.
 
 Conventions:
 	@type(review) a document to review; @type(session) a hand-off to a Claude Code session; @type(work) a work package
@@ -25,17 +25,17 @@ Conventions:
 	@status(open), @status(inprogress) or @status(waiting); @done(YYYY-MM-DD HH:MM) when finished, with a one-line outcome in the note (the board, the hub and --tick write the time)
 	Deadlines, on this file's first line only: @harddeadline(YYYY-MM-DD, what is due) for an external, real deadline, and @softdeadline(YYYY-MM-DD, what is due) for an internal one that may slip a few days; set them from the hub's Deadlines button or with taskflow.py --deadline. The hub ranks the user's tasks by them after @priority
 	@priority(high) or @priority(low); @id({PREFIX}.N) unique and never reused (the highest used is in the Update log); @added(YYYY-MM-DD HH:MM), the time the item was added (date '+%Y-%m-%d %H:%M'); the hub's Gantt chart draws each item from @added to @done
-	Documents: link each document with two lines, its file:// URL and then its Hookmark hook:// URL (spaces as %20, + left as is). After adding file:// lines, run: python3 "{TASKFLOW_PY}" <this file> --add-hook-links
+	Documents: each is two lines, its file:// URL and then its Hookmark hook:// URL. Link them with python3 "{TASKFLOW_PY}" <this file> --link <id> <path>, which puts the document first, as the item's main document (the one its Open button opens), with its Hookmark line; add --also for what comes after it, which must be closely related to it, files the user opens only because the user reviews it (earlier versions, an audio summary or figure of it, its agent reviews, the results behind it); a separate document gets its own review. A new version goes first, the earlier ones stay after it. --unlink <id> <path> removes one
 
 How to maintain (every session working on this effort):
 	1. Before starting, read this file and the newest entries of the main record.
-	2. When you produce a document for the user, add a review item and put its questions in the document itself.
-	3. When you stop to wait for the user, add a session hand-off for yourself: @session(your title), your session id and resume command, a Prompt line, and @needs on the review items you are waiting for. Gate your next work package on that hand-off.
+	2. When you produce a document for the user, put its questions in the document itself, each with its options and your recommendation, and link it on its review item with --link.
+	3. When you stop to wait for the user, put your question in a document with its review item, and add a session hand-off for yourself after it: @session(your title), your session id and resume command, a Prompt line, and @needs on that review. Give the waiting work @needs on the hand-off. @status(waiting) alone does not block.
 	3b. Give every item you add @sessionid with the id of the session it comes from (your own: echo $CLAUDE_CODE_SESSION_ID). Registered jobs and their automatic results reviews get it without further action.
 	4. Keep it high level: no items for individual questions, decisions or small steps.
 	4a. When you start a long-running job, add its 💻 item, then register it: python3 "{TASKFLOW_PY}" <this file> --job-start <id> with --slurm <job ids> for a cluster job or --marker <the file the job writes last> for anything else (an agent review: its report), plus --results <path> for each output to link in the review item; or run a local command as python3 "{TASKFLOW_PY}" <this file> --job-run <id> -- <command>. Do not tick a registered job by hand; the sweep does it. A job that cannot be registered is ticked by the session, which also adds the results review.
 	5. Never delete an item; tag it @done(date) with an outcome line. Retired ids are listed in the Update log and never reused.
-	6. Re-read the file just before writing (other sessions edit it too), add Hookmark links with the command above, check the file with --check, and append one line to the Update log for each session that changes it.
+	6. Re-read the file just before writing (other sessions edit it too), add any missing Hookmark links (python3 "{TASKFLOW_PY}" <this file> --add-hook-links), check the file with --check, and append one line to the Update log for each session that changes it.
 
 Saved searches (paste into the TaskPaper search bar):
 	@type = review and not @done

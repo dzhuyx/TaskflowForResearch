@@ -1,0 +1,31 @@
+const out = {}, check = (name, ok, detail) => { out[name] = ok ? "PASS" : "FAIL " + JSON.stringify(detail); };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const errors = []; window.addEventListener("error", (e) => errors.push(e.message));
+for (let k = 0; k < 40 && !(window.cy && cy.nodes().length); k++) await sleep(100);
+await sleep(500);
+const opened = []; window.openLink = (u) => { opened.push(decodeURIComponent(u)); };   // nothing is really opened
+const tail = (u) => u.split("/").pop();
+select("f.7"); await sleep(200);
+const grp = () => document.querySelector("#panel .opengroup"), menu = () => grp() && grp().querySelector("details.docmenu");
+const rows = () => [...menu().querySelectorAll(".menu button")];
+check("01 three documents: the Open button names the first, All 3 beside it", grp() && grp().querySelector("button.opendoc").textContent.includes("report_v2.md") && menu().querySelector("summary").textContent.trim() === "All 3", grp() && grp().textContent);
+check("02 the list names every document in link order, the first marked main, the folder marked", rows().map((b) => b.querySelector(".dname").textContent).join("|") === "report_v2.md|results|report_v1.md"
+  && rows()[0].textContent.includes("main") && rows()[1].textContent.includes("folder") && !rows()[2].textContent.includes("main"), rows().map((b) => b.textContent));
+grp().querySelector("button.opendoc").click();
+check("03 the Open button opens the main document", opened.length === 1 && tail(opened[0]) === "report_v2.md", opened);
+menu().querySelector("summary").click(); await sleep(100);
+check("04 All 3 opens the list", menu().open, menu().open);
+renderPanel(); await sleep(100);
+check("05 a redraw keeps the list open", menu() && menu().open, menu() && menu().open);
+rows()[2].click(); await sleep(100);
+check("06 choosing a document opens it and closes the list", tail(opened[1] || "") === "report_v1.md" && !menu().open, [opened, menu().open]);
+menu().querySelector("summary").click(); await sleep(100);
+document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })); await sleep(100);
+check("07 Escape closes the list", !menu().open, menu().open);
+menu().querySelector("summary").click(); await sleep(100);
+document.getElementById("panel").querySelector("h2").click(); await sleep(100);
+check("08 a click elsewhere closes it", !menu().open, menu().open);
+select("f.8"); await sleep(200);
+check("09 one document: the Open button alone, as before", !grp() && document.querySelector("#panel .actions button.opendoc") && document.querySelector("#panel .actions button.opendoc").textContent.includes("report_v1.md"), document.querySelector("#panel .actions") && document.querySelector("#panel .actions").innerHTML.slice(0, 200));
+check("10 no page errors", errors.length === 0, errors);
+return JSON.stringify(out, null, 1);

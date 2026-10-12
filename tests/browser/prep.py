@@ -53,5 +53,21 @@ elif kind == "hub_redesign":   # hub: deadlines on two projects, an idle project
     tf.hub_add(t / "idle_tracker.taskpaper")
     b = t / "beta_tracker.taskpaper"
     b.write_text(b.read_text().replace("@id(be.1)\n", "@id(be.1)\n\t\t2026-10-10 09:00: the co-author's data\n"))
+elif kind in ("docs", "hub_docs"):   # three documents on f.7 (board) or al.1 (hub): a report, a results folder, an earlier version
+    import urllib.parse
+    (d / "docs" / "results").mkdir(parents=True)
+    for n in ("report_v2.md", "report_v1.md"):
+        (d / "docs" / n).write_text("fixture\n")
+    url = lambda n: "file://" + urllib.parse.quote(str(d / "docs" / n), safe="/+")
+    links = "".join(f"\t\t{url(n)}\n" for n in ("report_v2.md", "results", "report_v1.md"))
+    if kind == "docs":
+        def fn(lines):
+            i = line_of(lines, "f.7")
+            lines[i + 1:i + 1] = links.rstrip("\n").split("\n")
+            lines[line_of(lines, "f.8") + 1:line_of(lines, "f.8") + 1] = [f"\t\t{url('report_v1.md')}"]
+        edit_lines(d / "fix_tracker.taskpaper", fn)
+    else:
+        a = d / "trackers" / "alpha_tracker.taskpaper"
+        a.write_text(a.read_text(encoding="utf-8").replace("\t\tfile:///tmp/hub_fixture_doc.pdf\n", links, 1), encoding="utf-8")
 else:
     raise SystemExit(f"unknown fixture kind {kind}")

@@ -114,6 +114,7 @@ An excerpt, for illustration: `<session id>` stands for a real one, and ab.3 is 
 - `@owner(me)` is yours; `@owner(claude)` is work a Claude session runs on its own; `@type(session)` is a hand-off back to a session.
 - `@needs` draws the arrows and decides what is ready.
 - Indented `- ` lines under a task are its checklist, ticked with `@done`.
+- A task's first linked document is its main one: the **Open** button opens it, and **All N** beside the button lists the others. `taskflow.py TRACKER --link ID PATH` puts a document first (with `--also`, after the others), so you never reorder links by hand. Only files closely related to the main document follow it (earlier versions, an audio summary, its reviews, the results behind it); a separate document gets its own review.
 - `@status(inprogress)`, `@done(…)`, `@priority(high)`, and the project's `@harddeadline` and `@softdeadline` on the first line, do what their names say. `skills/taskflow-tracker/SKILL.md` has the full rules.
 
 ## The board

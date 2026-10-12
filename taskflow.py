@@ -221,7 +221,7 @@ def docs_for(links):
         if u.startswith("file://"):
             path = file_path(u)
             docs.append({"name": os.path.basename(path) or path, "path": path, "file": u, "hook": None,
-                         "web": None, "exists": os.path.exists(path)})
+                         "web": None, "exists": os.path.exists(path), "folder": os.path.isdir(path)})
     for u in links:
         if u.startswith("hook://"):
             match = next((d for d in docs if d["file"] and not d["hook"] and hook_matches(u, d["path"])), None)
@@ -326,6 +326,111 @@ def add_hook_links(text, get_hook=hookmark_url):
     return "\n".join(out), added, problems
 
 
+# An item's first linked document is its main one: the board's and the hub's Open button opens it, and their list of
+# all its documents starts with it. --link puts a document first, or after the others.
+def link_doc(text, item_id, path, also=False, get_hook=hookmark_url):
+    """Return (new_text, what was done, problems) with PATH linked on the item: first, as its main document, or (also)
+    after its other links. A path already linked is moved, with its hook:// line; a new one gets a hook:// line when
+    Hookmark is in use. Raises EditError."""
+    found = [it for it in parse(text) if it["id"] == item_id and it["has_id"]]
+    if len(found) != 1:
+        raise EditError(f"{item_id} is not in the tracker." if not found else f"{item_id} appears more than once; edit it in TaskPaper.")
+    it, lines = found[0], text.split("\n")
+    path = os.path.abspath(os.path.expanduser(path))
+    url, name, problems = file_url(path), os.path.basename(path) or path, []
+    linked = lambda i: (lines[i].strip() if URL_RE.fullmatch(lines[i].strip()) and lines[i].strip().startswith(("file://", "hook://")) else None)
+    drop, hook = [], None
+    for i in range(it["line"] + 1, it["end"] + 1):
+        s = linked(i)
+        if s and s.startswith("file://") and os.path.realpath(file_path(s)) == os.path.realpath(path):
+            drop.append(i)
+            j = i + 1                                  # its hook:// line, under it as --add-hook-links writes it
+            while j <= it["end"] and linked(j) and linked(j).startswith("hook://") and hook_matches(linked(j), file_path(s)):
+                hook = hook or linked(j)
+                drop.append(j)
+                j += 1
+    before = [i for i in range(it["line"] + 1, it["end"] + 1) if linked(i) and i not in drop]
+    if drop and (not before or (drop[0] > before[-1] if also else drop[0] < before[0])):
+        return text, f"{name} is already " + ("linked after the other documents of" if also and before else "the main document of") + f" {item_id}; nothing changed.", []
+    rest = [l for i, l in enumerate(lines) if i not in drop]
+    shift = lambda i: i - sum(1 for d in drop if d < i)
+    at = it["line"] + 1 if not also or not before else shift(before[-1]) + 1
+    if hook is None and (get_hook is not hookmark_url or hookmark_available()):
+        try:
+            hook = get_hook(url)
+        except (RuntimeError, OSError, subprocess.SubprocessError) as e:
+            problems.append(f"Hookmark failed for {path}: {e}; run --add-hook-links later")
+    lead = "\t" * (it["depth"] + 1)
+    rest[at:at] = [lead + url] + ([lead + hook] if hook else [])
+    if also:
+        said = ("Moved" if drop else "Linked") + f" {name} after the other documents of {item_id}" + ("." if before else ", its only document.")
+    else:
+        said = ("Moved" if drop else "Linked") + f" {name} first: it is now the main document of {item_id}."
+    return "\n".join(rest), said, problems
+
+
+def unlink_doc(text, item_id, path):
+    """Return the text with PATH's file:// line (and its hook:// line) removed from the item's note. Raises EditError."""
+    found = [it for it in parse(text) if it["id"] == item_id and it["has_id"]]
+    if len(found) != 1:
+        raise EditError(f"{item_id} is not in the tracker." if not found else f"{item_id} appears more than once; edit it in TaskPaper.")
+    it, lines = found[0], text.split("\n")
+    path = os.path.realpath(os.path.abspath(os.path.expanduser(path)))
+    drop = []
+    for i in range(it["line"] + 1, it["end"] + 1):
+        s = lines[i].strip()
+        if s.startswith("file://") and URL_RE.fullmatch(s) and os.path.realpath(file_path(s)) == path:
+            drop.append(i)
+            j = i + 1
+            while j <= it["end"] and lines[j].strip().startswith("hook://") and hook_matches(lines[j].strip(), file_path(s)):
+                drop.append(j)
+                j += 1
+    if not drop:
+        raise EditError(f"{os.path.basename(path)} is not linked on {item_id}.")
+    return "\n".join(l for i, l in enumerate(lines) if i not in drop)
+
+
+MEDIA = {".m4a", ".mp3", ".wav", ".aif", ".aiff", ".aac", ".flac", ".mp4", ".mov", ".m4v"}
+VERSION_RE = re.compile(r"(.+?)(?:[_-](\d{8}))?[_-]v(\d+(?:\.\d+)*)", re.I)   # name_20261011_v5.2: name, date, version
+
+
+def supporting_kind(d):
+    """'a folder' or 'an audio or video file': a document that should not be an item's main one; else None."""
+    if d.get("folder"):
+        return "a folder"
+    if d["path"] and os.path.splitext(d["path"])[1].lower() in MEDIA:
+        return "an audio or video file"
+    return None
+
+
+def version_of(d):
+    """((name, extension), (version, date)) for a file named like name_20261011_v5.2.pdf, else None."""
+    if not d["path"]:
+        return None
+    stem, ext = os.path.splitext(os.path.basename(d["path"]))
+    m = VERSION_RE.fullmatch(stem)
+    return ((m.group(1).lower(), ext.lower()), (tuple(int(x) for x in m.group(3).split(".")), m.group(2) or "")) if m else None
+
+
+def doc_warnings(it):
+    """Warnings for an open item whose Open button would open the wrong document."""
+    docs = it["docs"]
+    if it["done"] or len(docs) < 2:
+        return []
+    first, out = docs[0], []
+    kind, read = supporting_kind(first), next((d for d in docs[1:] if supporting_kind(d) is None), None)
+    if kind and read:
+        out.append(f"{it['id']}: its first document, {first['name']}, is {kind}, so its Open button opens that rather than "
+                   f"{read['name']}; put the document to read first (taskflow.py TRACKER --link {it['id']} PATH).")
+    v = version_of(first)
+    newer = [d for d in docs[1:] if version_of(d) and version_of(d)[0] == v[0] and version_of(d)[1] > v[1]] if v else []
+    if newer:
+        newest = max(newer, key=lambda d: version_of(d)[1])
+        out.append(f"{it['id']}: its first document, {first['name']}, is older than {newest['name']}, linked after it, so its "
+                   f"Open button opens the older version; put the newest first (taskflow.py TRACKER --link {it['id']} PATH).")
+    return out
+
+
 _SESSION_CACHE = {}
 
 
@@ -414,6 +519,7 @@ def build_state(text, path, with_sessions=True):
         it.setdefault("readonly", False)
         it["links"] = URL_RE.findall(" ".join([it["title"]] + it["notes"]))
         it["docs"] = docs_for(it["links"])
+        warnings.extend(doc_warnings(it))
         it["needed_by"] = []
     for it in items:
         missing = [n for n in it["needs"] if n not in by_id]
@@ -432,8 +538,19 @@ def build_state(text, path, with_sessions=True):
                             "(a file:// line), or gate the review on the task that writes it.")
         if it["ready"] and it["status"] == "waiting":   # a blocked task must show what blocks it
             warnings.append(f"{it['id']} is waiting, but nothing it @needs is open, so the board and the hub show it as ready; "
-                            "give it @needs on the item it waits for (the review or decision item that holds the user's decision, "
-                            "or the task), or set its status to open or inprogress.")
+                            "give it @needs on the item it waits for (for the user's answer, the hand-off back to the session "
+                            "that follows the review of the document holding the user's question; or the task), or set its status to open or inprogress.")
+    # an item links only files about its main document; another review's document gets its own reading
+    mains = {os.path.realpath(r["docs"][0]["path"]): r["id"] for r in items
+             if r["type"] == "review" and not r["done"] and r["docs"] and r["docs"][0]["path"]}
+    for it in items:
+        if it["type"] == "review" and not it["done"]:
+            for d in it["docs"][1:]:
+                other = d["path"] and mains.get(os.path.realpath(d["path"]))
+                if other and other != it["id"]:
+                    warnings.append(f"{it['id']} links {d['name']}, the main document of the open review {other}: link only files about "
+                                    f"its own main document; let that document cite {d['name']}, and order the reviews with @needs "
+                                    f"(taskflow.py TRACKER --unlink {it['id']} PATH).")
     for it in items:                       # what finishing it unblocks: the board's Next order and the hub rank by it
         it["downstream"] = unblocks(it, by_id)
         it["score"] = impact_score(it, by_id)
@@ -1987,6 +2104,29 @@ def make_handler(app):
     return Handler
 
 
+def link_item(tracker, item, doc, unlink=False, also=False):
+    """From the command line: link a document on an item (link_doc) or remove its link (unlink_doc), re-reading and
+    retrying as set_item does, with a backup. Returns what was done."""
+    tracker = Path(tracker).resolve()
+    if not unlink and not os.path.exists(os.path.expanduser(doc)):
+        raise SystemExit(f"Not found: {doc}")
+    for _ in range(3):
+        old = tracker.read_text(encoding="utf-8")
+        try:
+            if unlink:
+                new, said, problems = unlink_doc(old, item, doc), f"Removed the link to {os.path.basename(doc)} from {item}.", []
+            else:
+                new, said, problems = link_doc(old, item, doc, also=also)
+        except EditError as e:
+            raise SystemExit(f"{e} ({tracker.name})")
+        if new == old:
+            return said
+        if tracker.read_text(encoding="utf-8") == old:
+            write_with_backup(tracker, old, new)
+            return "\n".join([said + f" ({tracker.name})"] + ["  " + p for p in problems])
+    raise SystemExit(f"{tracker.name} kept changing; nothing written. Run the command again.")
+
+
 def edit_tracker(path, body):
     """Apply one edit from a page to one item, with the conflict check and a backup; return (HTTP status, body).
 
@@ -2280,6 +2420,11 @@ def main(argv=None):
                     help="set item ID to open, inprogress or waiting (inprogress adds the running session's @sessionid)")
     ap.add_argument("--tick", metavar="ID", help="tick item ID done")
     ap.add_argument("--note", help="with --tick or --status: a one-line note, added as a dated line under the item")
+    ap.add_argument("--link", nargs=2, metavar=("ID", "PATH"),
+                    help="link a document or folder on item ID as its main document, the one its Open button opens "
+                         "(first; moved there if already linked), with its Hookmark link")
+    ap.add_argument("--also", action="store_true", help="with --link: link it after the item's other documents instead")
+    ap.add_argument("--unlink", nargs=2, metavar=("ID", "PATH"), help="remove a document's link (and its Hookmark link) from item ID")
     ap.add_argument("--hub", action="store_true", help="serve the hub: every tracker in the hub's list and all active tasks")
     ap.add_argument("--hub-list", action="store_true", help="print the hub's trackers with their counts")
     ap.add_argument("--hub-add", action="store_true", help="add the tracker to the hub's list")
@@ -2377,6 +2522,13 @@ def main(argv=None):
             print(set_item(path, a.tick, "done", note=a.note))
         else:
             print(set_item(path, a.status[0], "status", status=a.status[1], note=a.note, session=a.sessionid))
+        return
+    if a.also and not a.link:
+        ap.error("--also is used with --link")
+    if a.link or a.unlink:
+        if a.link and a.unlink:
+            ap.error("use --link or --unlink, not both")
+        print(link_item(path, *(a.link or a.unlink), unlink=bool(a.unlink), also=a.also))
         return
     if a.note:
         ap.error("--note is used with --tick or --status")
