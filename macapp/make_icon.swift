@@ -1,4 +1,5 @@
-// Draws the Taskflow app icon (a small dependency graph with a ticked box) as a 1024 x 1024 PNG.
+// Draws the Taskflow app icon as a 1024 x 1024 PNG, in the board's own style: on a light
+// tile, your ticked review (blue bar) and Claude's ticked task (clay bar) lead into a ready hand-off (purple, outlined).
 // Usage: swift make_icon.swift <output.png>
 import AppKit
 
@@ -6,73 +7,87 @@ let size: CGFloat = 1024
 let out = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "icon_1024.png"
 let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size), pixelsHigh: Int(size), bitsPerSample: 8,
                            samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+let gc = NSGraphicsContext(bitmapImageRep: rep)!
 NSGraphicsContext.saveGraphicsState()
-NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+NSGraphicsContext.current = gc
+gc.cgContext.translateBy(x: 0, y: size); gc.cgContext.scaleBy(x: 1, y: -1)   // y counts down, as on the page
 
 func color(_ hex: UInt32, _ a: CGFloat = 1) -> NSColor {
     NSColor(srgbRed: CGFloat((hex >> 16) & 0xff) / 255, green: CGFloat((hex >> 8) & 0xff) / 255, blue: CGFloat(hex & 0xff) / 255, alpha: a)
 }
+// the board's colours: who acts (static/index.html), the tick, the ink, a card's title lines and the edges
+let blue = color(0x2563eb), clay = color(0xc96442), purple = color(0xa21caf), green = color(0x1a7f4b), ink = color(0x1d1d1f)
 
-// Body: macOS icon grid (824 pt square, 100 pt margin), rounded, with a soft shadow.
-let body = NSRect(x: 100, y: 100, width: 824, height: 824)
-let shape = NSBezierPath(roundedRect: body, xRadius: 185, yRadius: 185)
-NSGraphicsContext.current!.saveGraphicsState()
-let shadow = NSShadow()
-shadow.shadowColor = color(0x000000, 0.28)
-shadow.shadowBlurRadius = 24
-shadow.shadowOffset = NSSize(width: 0, height: -10)
-shadow.set()
-color(0x4f5bd5).setFill()
-shape.fill()
-NSGraphicsContext.current!.restoreGraphicsState()
-NSGradient(starting: color(0x6a78f2), ending: color(0x8a4fe0))!.draw(in: shape, angle: -60)
-
-// Nodes: two prerequisites on the left, one item on the right.
-let nodes = [NSRect(x: 190, y: 590, width: 270, height: 150),
-             NSRect(x: 190, y: 290, width: 270, height: 150),
-             NSRect(x: 570, y: 440, width: 270, height: 150)]
-let edge = NSBezierPath()
-edge.lineWidth = 26
-edge.lineCapStyle = .round
-for src in nodes[0...1] {
-    edge.move(to: NSPoint(x: src.maxX, y: src.midY))
-    edge.curve(to: NSPoint(x: nodes[2].minX - 34, y: nodes[2].midY),
-               controlPoint1: NSPoint(x: src.maxX + 80, y: src.midY),
-               controlPoint2: NSPoint(x: nodes[2].minX - 110, y: nodes[2].midY))
+func shadowed(_ blur: CGFloat, _ dy: CGFloat, _ alpha: CGFloat, _ draw: () -> Void) {
+    NSGraphicsContext.saveGraphicsState()
+    let s = NSShadow()
+    s.shadowColor = color(0x000000, alpha); s.shadowBlurRadius = blur; s.shadowOffset = NSSize(width: 0, height: -dy)
+    s.set(); draw()
+    NSGraphicsContext.restoreGraphicsState()
 }
-color(0xffffff, 0.85).setStroke()
-edge.stroke()
-let head = NSBezierPath()   // arrow head into the right node
-head.move(to: NSPoint(x: nodes[2].minX - 6, y: nodes[2].midY))
-head.line(to: NSPoint(x: nodes[2].minX - 58, y: nodes[2].midY + 36))
-head.line(to: NSPoint(x: nodes[2].minX - 58, y: nodes[2].midY - 36))
-head.close()
-color(0xffffff, 0.85).setFill()
-head.fill()
 
-for (i, r) in nodes.enumerated() {
-    let p = NSBezierPath(roundedRect: r, xRadius: 34, yRadius: 34)
-    (i == 2 ? color(0xffffff) : color(0xeef0ff)).setFill()
-    p.fill()
-    // a checkbox in each node's corner; the first one is ticked
-    let box = NSRect(x: r.minX + 28, y: r.maxY - 28 - 58, width: 58, height: 58)
-    let b = NSBezierPath(roundedRect: box, xRadius: 12, yRadius: 12)
-    if i == 0 {
-        color(0x188038).setFill(); b.fill()
+// Body: macOS icon grid (824 pt square, 100 pt margin), white fading to a faint grey, with a hairline edge and a soft shadow.
+let body = NSBezierPath(roundedRect: NSRect(x: 100, y: 100, width: 824, height: 824), xRadius: 185, yRadius: 185)
+shadowed(28, 12, 0.22) { color(0xffffff).setFill(); body.fill() }
+NSGradient(starting: color(0xffffff), ending: color(0xe4e4ea))!.draw(in: body, angle: -90)
+body.lineWidth = 4; color(0x000000, 0.10).setStroke(); body.stroke()
+
+// A card as the board draws one: white, a hairline border, its colour bar down the left, a tick box, an id line and a
+// title line; a ready card is outlined in its colour, with a soft halo.
+func card(_ r: NSRect, _ bar: NSColor, ticked: Bool, ready: Bool = false, barW: CGFloat = 40) {
+    let radius: CGFloat = 40
+    let p = NSBezierPath(roundedRect: r, xRadius: radius, yRadius: radius)
+    if ready {
+        bar.withAlphaComponent(0.20).setFill()
+        NSBezierPath(roundedRect: r.insetBy(dx: -16, dy: -16), xRadius: radius + 16, yRadius: radius + 16).fill()
+    }
+    shadowed(18, 6, 0.10) { color(0xffffff).setFill(); p.fill() }
+    NSGraphicsContext.saveGraphicsState(); p.addClip()
+    bar.setFill(); NSRect(x: r.minX, y: r.minY, width: barW, height: r.height).fill()
+    NSGraphicsContext.restoreGraphicsState()
+    p.lineWidth = ready ? 14 : 6; (ready ? bar : color(0xbcbcc2)).setStroke(); p.stroke()
+
+    let x0 = r.minX + barW + 30, bs = min(76, r.height * 0.36)
+    let box = NSRect(x: x0, y: r.minY + 32, width: bs, height: bs)
+    let b = NSBezierPath(roundedRect: box, xRadius: bs * 0.22, yRadius: bs * 0.22)
+    if ticked {
+        green.setFill(); b.fill()
         let tick = NSBezierPath()
-        tick.lineWidth = 11; tick.lineCapStyle = .round; tick.lineJoinStyle = .round
-        tick.move(to: NSPoint(x: box.minX + 13, y: box.midY + 1))
-        tick.line(to: NSPoint(x: box.minX + 25, y: box.minY + 15))
-        tick.line(to: NSPoint(x: box.maxX - 12, y: box.maxY - 14))
+        tick.lineWidth = bs * 0.15; tick.lineCapStyle = .round; tick.lineJoinStyle = .round
+        tick.move(to: NSPoint(x: box.minX + bs * 0.24, y: box.midY + bs * 0.02))
+        tick.line(to: NSPoint(x: box.minX + bs * 0.43, y: box.maxY - bs * 0.26))
+        tick.line(to: NSPoint(x: box.maxX - bs * 0.22, y: box.minY + bs * 0.27))
         color(0xffffff).setStroke(); tick.stroke()
     } else {
-        b.lineWidth = 7; color(0x5f6368).setStroke(); b.stroke()
+        b.lineWidth = bs * 0.12; ink.setStroke(); b.stroke()
     }
-    // two text lines
-    color(0x9aa0f0, i == 2 ? 0.9 : 0.75).setFill()
-    NSBezierPath(roundedRect: NSRect(x: r.minX + 110, y: r.maxY - 64, width: r.width - 145, height: 20), xRadius: 10, yRadius: 10).fill()
-    NSBezierPath(roundedRect: NSRect(x: r.minX + 28, y: r.minY + 30, width: r.width - 90, height: 20), xRadius: 10, yRadius: 10).fill()
+    let lh = max(20, bs * 0.30), tx = box.maxX + 26
+    ink.withAlphaComponent(0.85).setFill()
+    NSBezierPath(roundedRect: NSRect(x: tx, y: box.midY - lh / 2, width: min(130, r.maxX - tx - 40), height: lh), xRadius: lh / 2, yRadius: lh / 2).fill()
+    color(0xd1d1d6).setFill()
+    NSBezierPath(roundedRect: NSRect(x: x0, y: box.maxY + 28, width: (r.maxX - 40 - x0) * 0.62, height: lh), xRadius: lh / 2, yRadius: lh / 2).fill()
 }
+
+// An edge as the board draws one: from a prerequisite's right side, bending halfway, into one arrowhead.
+func edge(from: NSPoint, to: NSPoint) {
+    let tip = NSPoint(x: to.x - 40, y: to.y), mid = from.x + (tip.x - from.x) * 0.5
+    let p = NSBezierPath()
+    p.lineWidth = 24; p.lineCapStyle = .round
+    p.move(to: from)
+    p.curve(to: tip, controlPoint1: NSPoint(x: mid, y: from.y), controlPoint2: NSPoint(x: mid, y: to.y))
+    color(0x8e8e93).setStroke(); p.stroke()
+    let head = NSBezierPath()
+    head.move(to: to); head.line(to: NSPoint(x: to.x - 64, y: to.y - 42)); head.line(to: NSPoint(x: to.x - 64, y: to.y + 42)); head.close()
+    color(0x8e8e93).setFill(); head.fill()
+}
+
+let review = NSRect(x: 160, y: 246, width: 296, height: 188), task = NSRect(x: 160, y: 590, width: 296, height: 188)
+let handoff = NSRect(x: 592, y: 392, width: 284, height: 240)
+edge(from: NSPoint(x: review.maxX + 4, y: review.midY), to: NSPoint(x: handoff.minX - 26, y: handoff.midY))
+edge(from: NSPoint(x: task.maxX + 4, y: task.midY), to: NSPoint(x: handoff.minX - 26, y: handoff.midY))
+card(review, blue, ticked: true)
+card(task, clay, ticked: true)
+card(handoff, purple, ticked: false, ready: true, barW: 36)
 
 NSGraphicsContext.restoreGraphicsState()
 try! rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: out))
