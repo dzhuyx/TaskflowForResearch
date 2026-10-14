@@ -69,7 +69,7 @@ hub activity - - activity
 hub activity - - box_hub
 hub - hub_redesign - redesign
 hub activity - - order
-hub - hub_checklist - checklist
+hub - hub_checklist - checklist panel
 hub - hub_docs - docs
 if [ -n "$SID" ]; then
   board go_to_session fix_tracker.taskpaper go_to_session

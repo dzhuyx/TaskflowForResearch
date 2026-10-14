@@ -25,5 +25,19 @@ menu().querySelector("summary").click(); await sleep(100);
 document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })); await sleep(100);
 check("07 Escape closes the list", !menu().open, menu().open);
 check("08 the Documents row still lists all three", [...det().querySelectorAll(".docs .doc a")].map((a) => a.textContent).join("|") === "report_v2.md|results|report_v1.md", [...det().querySelectorAll(".docs .doc a")].map((a) => a.textContent));
-check("09 no page errors", errors.length === 0, errors);
+// files to review: checklist steps that name a linked document; Open and All N offer just those
+const addStep = async (t) => { const i = det().querySelector("#i-step"); i.value = t; i.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  await until(() => [...det().querySelectorAll(".checklist .step span")].some((s) => s.textContent === t), 5000); };
+await addStep("report_v1.md");
+const openName = () => det().querySelector("button.opendoc").textContent;
+check("09 one step names a linked file: Open offers it alone, without the list", openName() === "Open report_v1.md" && !grp(), [openName(), !!grp()]);
+await addStep("results — the tables");
+check("10 a second (with words after the name): All 2, in checklist order, the first marked next",
+  menu() && menu().querySelector("summary").textContent.trim() === "All 2" && rows().map((b) => b.querySelector(".dname").textContent).join("|") === "report_v1.md|results" && rows()[0].textContent.includes("next"),
+  grp() && rows().map((b) => b.textContent));
+[...det().querySelectorAll(".checklist .step")].find((l) => l.textContent === "report_v1.md").querySelector("input").click();
+await until(() => openName() === "Open results", 5000);
+check("11 ticking it: Open opens the next file, the list marks the first reviewed", openName() === "Open results" && rows()[0].textContent.includes("reviewed"), [openName(), grp() && rows().map((b) => b.textContent)]);
+check("12 the Documents row still lists all three", [...det().querySelectorAll(".docs .doc a")].map((a) => a.textContent).join("|") === "report_v2.md|results|report_v1.md", [...det().querySelectorAll(".docs .doc a")].map((a) => a.textContent));
+check("13 no page errors", errors.length === 0, errors);
 return JSON.stringify(out, null, 1);

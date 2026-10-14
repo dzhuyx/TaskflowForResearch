@@ -327,7 +327,8 @@ def add_hook_links(text, get_hook=hookmark_url):
 
 
 # An item's first linked document is its main one: the board's and the hub's Open button opens it, and their list of
-# all its documents starts with it. --link puts a document first, or after the others.
+# all its documents starts with it. --link puts a document first, or after the others. When its
+# checklist names files to review, Open offers those instead (step_doc).
 def link_doc(text, item_id, path, also=False, get_hook=hookmark_url):
     """Return (new_text, what was done, problems) with PATH linked on the item: first, as its main document, or (also)
     after its other links. A path already linked is moved, with its hook:// line; a new one gets a hook:// line when
@@ -387,7 +388,47 @@ def unlink_doc(text, item_id, path):
                 j += 1
     if not drop:
         raise EditError(f"{os.path.basename(path)} is not linked on {item_id}.")
+    drop += [c["line"] for c in review_steps(it, lines, lambda d: d["path"] and os.path.realpath(d["path"]) == path)]
     return "\n".join(l for i, l in enumerate(lines) if i not in drop)
+
+
+def review_steps(it, lines, which):
+    """The unticked steps of the item's checklist that name a linked document for which WHICH(doc) is true; not a step
+    with steps or notes of its own under it."""
+    docs, out = docs_for(URL_RE.findall(" ".join([it["title"]] + it["notes"]))), []
+    for c in it["checklist"]:
+        k, n = step_doc(c["text"], docs), c["line"]
+        if c["done"] or k is None or not which(docs[k]):
+            continue
+        if n + 1 < len(lines) and lines[n + 1].strip() and depth_of(lines[n + 1]) > depth_of(lines[n]):
+            continue
+        out.append(c)
+    return out
+
+
+def review_step(text, item_id, path):
+    """Return (new_text, what was done) with the linked file PATH listed in the item's checklist as a file for you to
+    review: a step named for the file, at the end; an unticked step for an older version of it is
+    removed. Raises EditError."""
+    found = [it for it in parse(text) if it["id"] == item_id and it["has_id"]]
+    if len(found) != 1:
+        raise EditError(f"{item_id} is not in the tracker." if not found else f"{item_id} appears more than once; edit it in TaskPaper.")
+    it, lines = found[0], text.split("\n")
+    docs = docs_for(URL_RE.findall(" ".join([it["title"]] + it["notes"])))
+    path = os.path.realpath(os.path.abspath(os.path.expanduser(path)))
+    doc = next((d for d in docs if d["path"] and os.path.realpath(d["path"]) == path), None)
+    if doc is None:
+        raise EditError(f"{os.path.basename(path)} is not linked on {item_id}; link it first.")
+    if any(step_doc(c["text"], docs) == docs.index(doc) for c in it["checklist"]):
+        return text, f"{doc['name']} is already in the checklist of {item_id}."
+    v = version_of(doc)
+    old = review_steps(it, lines, lambda d: v and version_of(d) and version_of(d)[0] == v[0] and version_of(d)[1] < v[1])
+    drop = [c["line"] for c in old]
+    end = it["end"] - len(drop)
+    lines = [l for i, l in enumerate(lines) if i not in drop]
+    lines.insert(end + 1, "\t" * (it["depth"] + 1) + "- " + doc["name"])
+    said = f"Added {doc['name']} to the checklist of {item_id}, as a file for you to review"
+    return "\n".join(lines), said + (f", in place of {', '.join(c['text'] for c in old)}." if old else ".")
 
 
 MEDIA = {".m4a", ".mp3", ".wav", ".aif", ".aiff", ".aac", ".flac", ".mp4", ".mov", ".m4v"}
@@ -412,11 +453,32 @@ def version_of(d):
     return ((m.group(1).lower(), ext.lower()), (tuple(int(x) for x in m.group(3).split(".")), m.group(2) or "")) if m else None
 
 
+# An item's files to review are the steps of its checklist that name one of its linked documents: the
+# Open button and its list offer just those, in checklist order, and the user ticks each step when the user has read its file. The
+# item's other links (earlier versions, results folders, audio) stay under Documents.
+def step_doc(text, docs):
+    """The index in DOCS of the linked document a checklist step names, or None: the step is the document's file name,
+    alone or followed by a space and more words; the longest name wins, then the first linked."""
+    hits = [i for i, d in enumerate(docs) if d["name"] and (text == d["name"] or text.startswith(d["name"] + " "))]
+    return max(hits, key=lambda i: len(docs[i]["name"])) if hits else None
+
+
 def doc_warnings(it):
     """Warnings for an open item whose Open button would open the wrong document."""
     docs = it["docs"]
     if it["done"] or len(docs) < 2:
         return []
+    review = [c for c in it["checklist"] if c.get("doc") is not None]
+    if review:      # Open offers its files to review: warn about one still to read in an older version than one linked
+        out = []
+        for c in review:
+            v = version_of(docs[c["doc"]])
+            newer = [d for d in docs if v and version_of(d) and version_of(d)[0] == v[0] and version_of(d)[1] > v[1]]
+            if newer and not c["done"]:
+                newest = max(newer, key=lambda d: version_of(d)[1])
+                out.append(f"{it['id']}: its checklist has the user review {docs[c['doc']]['name']}, older than {newest['name']}, linked "
+                           f"on it; list the newest version instead (taskflow.py TRACKER --link {it['id']} PATH --to-review).")
+        return out
     first, out = docs[0], []
     kind, read = supporting_kind(first), next((d for d in docs[1:] if supporting_kind(d) is None), None)
     if kind and read:
@@ -519,7 +581,12 @@ def build_state(text, path, with_sessions=True):
         it.setdefault("readonly", False)
         it["links"] = URL_RE.findall(" ".join([it["title"]] + it["notes"]))
         it["docs"] = docs_for(it["links"])
+        for c in it["checklist"]:
+            c["doc"] = step_doc(c["text"], it["docs"])
         warnings.extend(doc_warnings(it))
+        if it["type"] == "review" and not it["done"] and it["docs"] and all(c["doc"] is None for c in it["checklist"]):
+            warnings.append(f"{it['id']} is a review whose checklist names no file to review: add a step for each linked file the user "
+                            f"must read, so that its Open button offers just those (taskflow.py TRACKER --link {it['id']} PATH --to-review).")
         it["needed_by"] = []
     for it in items:
         missing = [n for n in it["needs"] if n not in by_id]
@@ -1728,6 +1795,11 @@ def _results_lines(paths):
     return out
 
 
+def _results_steps(paths):
+    """The results review's checklist: each results file or folder, as one for you to review."""
+    return ["- " + Path(r).expanduser().resolve().name for r in paths or []]
+
+
 def finish_job(job, ok, detail, today=None):
     """Record a job's outcome in its tracker: done plus a results review if ok, a note and @status(waiting) if not."""
     today = today or dt.date.today().isoformat()
@@ -1756,7 +1828,7 @@ def finish_job(job, ok, detail, today=None):
                                 f"- Review the results of {job['item']}: {title} @type(review) @owner(me) @status(open) "
                                 f"@id({new_id}) @added({now_stamp()}) @needs({job['item']}){sid_tag}",
                                 [f"Added automatically when the 💻 job {job['item']} finished ({detail}). Check the results, then tick this item to close the loop."]
-                                + _results_lines(job.get("results")))
+                                + _results_lines(job.get("results")) + _results_steps(job.get("results")))
                 added = f"; added results review {new_id}"
             entry = f"{today}: Job {job['item']} finished ({detail}); marked done automatically{added}."
         else:
@@ -2104,9 +2176,10 @@ def make_handler(app):
     return Handler
 
 
-def link_item(tracker, item, doc, unlink=False, also=False):
-    """From the command line: link a document on an item (link_doc) or remove its link (unlink_doc), re-reading and
-    retrying as set_item does, with a backup. Returns what was done."""
+def link_item(tracker, item, doc, unlink=False, also=False, review=False):
+    """From the command line: link a document on an item (link_doc), also as a file for you to review in its checklist
+    (review_step), or remove its link and its unticked step (unlink_doc), re-reading and retrying as set_item does, with
+    a backup. Returns what was done."""
     tracker = Path(tracker).resolve()
     if not unlink and not os.path.exists(os.path.expanduser(doc)):
         raise SystemExit(f"Not found: {doc}")
@@ -2114,9 +2187,15 @@ def link_item(tracker, item, doc, unlink=False, also=False):
         old = tracker.read_text(encoding="utf-8")
         try:
             if unlink:
-                new, said, problems = unlink_doc(old, item, doc), f"Removed the link to {os.path.basename(doc)} from {item}.", []
+                new, problems = unlink_doc(old, item, doc), []
+                steps = [len(next(i for i in parse(t) if i["id"] == item)["checklist"]) for t in (old, new)]
+                said = f"Removed the link to {os.path.basename(doc)} from {item}" + (" and its step from the checklist." if steps[1] < steps[0] else ".")
             else:
                 new, said, problems = link_doc(old, item, doc, also=also)
+                if review:
+                    linked = new
+                    new, step = review_step(new, item, doc)
+                    said = step if linked == old else said + " " + step
         except EditError as e:
             raise SystemExit(f"{e} ({tracker.name})")
         if new == old:
@@ -2130,7 +2209,7 @@ def link_item(tracker, item, doc, unlink=False, also=False):
 def edit_tracker(path, body):
     """Apply one edit from a page to one item, with the conflict check and a backup; return (HTTP status, body).
 
-    Used by the board (any edit) and the hub (ticking and unticking only).
+    Used by the board and by the hub, which makes the same edits from its task details.
     """
     old = path.read_text(encoding="utf-8")
     try:
@@ -2289,12 +2368,10 @@ def make_hub_handler(hub):
                     return self._send(HTTPStatus.BAD_REQUEST, {"error": str(e)})
                 except OSError as e:
                     return self._send(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Cannot save the folded lists: {e}"})
-            if route == "/api/hub/edit":         # tick or untick a task of a listed tracker, as on its board
+            if route == "/api/hub/edit":         # any edit its board makes, to a task of a listed tracker
                 path = str(body.get("path", ""))
                 if not listed(path):
                     return self._send(HTTPStatus.BAD_REQUEST, {"error": f"Not in the hub's list: {path}"})
-                if body.get("op") not in ("done", "reopen", "check"):
-                    return self._send(HTTPStatus.BAD_REQUEST, {"error": "The hub only ticks and unticks tasks and their checklist steps; make other changes on the board."})
                 try:
                     code, result = edit_tracker(Path(path), body)
                 except (OSError, UnicodeDecodeError) as e:
@@ -2421,10 +2498,12 @@ def main(argv=None):
     ap.add_argument("--tick", metavar="ID", help="tick item ID done")
     ap.add_argument("--note", help="with --tick or --status: a one-line note, added as a dated line under the item")
     ap.add_argument("--link", nargs=2, metavar=("ID", "PATH"),
-                    help="link a document or folder on item ID as its main document, the one its Open button opens "
-                         "(first; moved there if already linked), with its Hookmark link")
+                    help="link a document or folder on item ID as its main document, the one its Open button opens when its "
+                         "checklist names no file to review (first; moved there if already linked), with its Hookmark link")
     ap.add_argument("--also", action="store_true", help="with --link: link it after the item's other documents instead")
-    ap.add_argument("--unlink", nargs=2, metavar=("ID", "PATH"), help="remove a document's link (and its Hookmark link) from item ID")
+    ap.add_argument("--to-review", action="store_true", help="with --link: also list the file in the item's checklist as one for you to "
+                    "review, which the Open button offers and the user ticks when read; an unticked step for an older version of it goes")
+    ap.add_argument("--unlink", nargs=2, metavar=("ID", "PATH"), help="remove a document's link (and its Hookmark link, and its checklist step if not ticked) from item ID")
     ap.add_argument("--hub", action="store_true", help="serve the hub: every tracker in the hub's list and all active tasks")
     ap.add_argument("--hub-list", action="store_true", help="print the hub's trackers with their counts")
     ap.add_argument("--hub-add", action="store_true", help="add the tracker to the hub's list")
@@ -2525,10 +2604,12 @@ def main(argv=None):
         return
     if a.also and not a.link:
         ap.error("--also is used with --link")
+    if a.to_review and not a.link:
+        ap.error("--to-review is used with --link")
     if a.link or a.unlink:
         if a.link and a.unlink:
             ap.error("use --link or --unlink, not both")
-        print(link_item(path, *(a.link or a.unlink), unlink=bool(a.unlink), also=a.also))
+        print(link_item(path, *(a.link or a.unlink), unlink=bool(a.unlink), also=a.also, review=a.to_review))
         return
     if a.note:
         ap.error("--note is used with --tick or --status")

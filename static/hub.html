@@ -158,6 +158,8 @@
   #detail .dmeta { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
   #detail .dmeta .pe { width: 22px; height: 22px; border-radius: 7px; font-size: 12px; }
   #detail h2 { font-size: 20px; color: var(--ink); margin: 0; line-height: 1.3; letter-spacing: -.01em; }
+  #detail h3 { font-size: 12px; font-weight: 600; color: var(--muted); margin: 18px 0 8px; }
+  #detail .seg button { flex: 1; min-height: 38px; padding: 0; }   /* its status: Open, In progress, Waiting */
   .donebox { display: flex; gap: 12px; align-items: flex-start; cursor: pointer; margin: 10px 0 8px; }
   .donebox input { width: 22px; height: 22px; margin: 3px 0 0; accent-color: var(--ok); flex: none; cursor: pointer; }
   .badges { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
@@ -185,10 +187,13 @@
   dl.facts { margin: 14px 0 0; padding-top: 14px; border-top: 1px solid #ececf0; display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 12px; font-size: 13px; line-height: 1.4; }
   dl.facts dt { color: var(--faint); }
   dl.facts dd { margin: 0; min-width: 0; }
-  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
   .chip { display: inline-flex; align-items: center; gap: 5px; min-height: 26px; padding: 0 10px; border-radius: 13px; border: 1px solid var(--line2); background: #fff; font-size: 12px; cursor: pointer; }
   .chip.done { background: var(--donebg); border-color: transparent; color: var(--muted); }
   .chip.unmet { border-color: var(--bad); color: var(--badink); }
+  .chip button.x { min-height: 20px; width: 20px; padding: 0; border: 0; border-radius: 10px; background: transparent; margin-right: -6px; }
+  .chip button.x:hover { background: #ededf0; }
+  input.addneed { width: 96px; min-height: 28px; padding: 0 10px; border: 1px dashed #c7c7cc; border-radius: 14px; font-size: 12px; }
   .notes p { margin: 0 0 6px; word-break: break-word; color: #3a3a3f; }
   .notes a.link, .doc a { color: var(--accent); cursor: pointer; text-decoration: none; word-break: break-all; font-weight: 500; }
   .notes a.link:hover, .doc a:hover { text-decoration: underline; }
@@ -205,6 +210,19 @@
   .checklist .step { display: flex; gap: 10px; align-items: flex-start; padding: 6px 0; font-size: 13px; line-height: 1.4; cursor: pointer; }
   .checklist .step input { flex: none; width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--ok); cursor: pointer; }
   .checklist .step.done span { color: var(--muted); text-decoration: line-through; }
+  .checklist .step span svg.i { vertical-align: -2px; margin-right: 5px; }   /* a step that names a file to review */
+  .checklist .steprow { display: flex; align-items: flex-start; gap: 4px; }
+  .checklist .steprow .step { flex: 1; min-width: 0; }
+  .checklist .steprow .x { flex: none; width: 26px; height: 26px; margin-top: 3px; border: 0; border-radius: 13px; background: transparent; color: var(--faint); font-size: 16px; line-height: 1; cursor: pointer; opacity: 0; }
+  .checklist .steprow:hover .x, .checklist .steprow .x:focus { opacity: 1; }
+  .checklist .steprow .x:hover { background: #ececf0; color: var(--ink); }
+  .checklist .addstep { width: 100%; min-height: 34px; margin: 6px 0 4px; padding: 0 10px; border: 1px dashed var(--line2); border-radius: 9px; font: inherit; font-size: 13px; background: #fff; }
+  .checklist.empty { padding-bottom: 10px; }
+  .runbox { background: #fcf5f1; border: 1px solid #f1ddd1; border-radius: 14px; padding: 12px 14px; margin: 14px 0 0; }
+  .runbox.quiet { background: #fff6ea; border-color: #f0c99a; }
+  .runbox .shead { font-size: 12px; font-weight: 600; color: #8a3b1f; margin-bottom: 6px; }
+  .runbox dl { margin: 0; display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 6px 10px; font-size: 13px; line-height: 1.4; }
+  .runbox dt { color: var(--faint); } .runbox dd { margin: 0; } .runbox dd.look { color: var(--warn); font-weight: 600; }
   .steps { display: inline-flex; align-items: center; gap: 3px; font-weight: 600; } .steps.all { color: var(--okink); }
   .sessionbox { background: var(--soft); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; margin: 14px 0 0; display: flex; flex-direction: column; gap: 6px; }
   .sessionbox .live { color: var(--okink); font-size: 12px; font-weight: 600; }
@@ -350,6 +368,7 @@ const ICONS = {   // 16x16 line icons; text never relies on them alone
   check: [["path", { d: "M3 8.5l3.2 3.2L13 4.8" }]],
   doc: [["path", { d: "M4 1.5h5.5L13 5v9.5H4z" }], ["path", { d: "M9.5 1.5V5H13" }]],
   chev: [["path", { d: "M4 6l4 4 4-4" }]],
+  x: [["path", { d: "M4 4l8 8M12 4l-8 8" }]],
   star: [["path", { d: "M8 1.8l1.9 4 4.3.5-3.2 3 .9 4.3L8 11.4l-3.9 2.2.9-4.3-3.2-3 4.3-.5z", fill: true }]],
   dots: [["circle", { cx: 3.5, cy: 8, r: 1.3, fill: true }], ["circle", { cx: 8, cy: 8, r: 1.3, fill: true }], ["circle", { cx: 12.5, cy: 8, r: 1.3, fill: true }]],
 };
@@ -753,23 +772,34 @@ function flash(text, err) {
 }
 const BARE_URL = /^(?:file|hook|https?):\/\/\S+$/;
 // The Open button opens the task's first document, its main one; with two or more, All N beside it lists every one,
-// the main one first, in the order they are linked
+// the main one first, in the order they are linked. When its checklist names files to review, Open and the list offer
+// just those, in checklist order, and Open opens the first not yet ticked; the other links stay under Documents.
 let docsOpen = null;   // the task whose list of documents is open, so that a redraw keeps it open
+function reviewFiles(it) {   // the checklist's steps that name a linked document (the server's step_doc): [{ d, done }]
+  const seen = new Set(), out = [];
+  (it.checklist || []).forEach((c) => { if (c.doc != null && it.docs[c.doc] && !seen.has(c.doc)) { seen.add(c.doc); out.push({ d: it.docs[c.doc], done: c.done }); } });
+  return out;
+}
+function nextDoc(it) {   // the document Open opens
+  const files = reviewFiles(it);
+  return files.length ? (files.find((f) => !f.done) || files[0]).d : it.docs[0];
+}
 function openDocs(it, key) {
   const go = (d) => d.hook || d.file || d.web, tip = (d) => (d.path || go(d)) + (d.hook ? "\nOpens through Hookmark" : "");
-  const main = it.docs[0], n = it.docs.length;
+  const files = reviewFiles(it), review = files.length > 0, list = review ? files : it.docs.map((d) => ({ d, done: false }));
+  const main = nextDoc(it), n = list.length;
   const btn = h("button", { class: "primary opendoc", title: tip(main), onclick: () => openLink(go(main)) },
     icon("doc", 14, "#ffffff"), "Open " + (main.name.length > 34 ? main.name.slice(0, 32) + "…" : main.name));
   if (n < 2) return btn;
   return h("div", { class: "opengroup" }, btn,
     h("details", { class: "docmenu", open: docsOpen === key ? "open" : false,
         ontoggle: (e) => { if (e.target.open) docsOpen = key; else if (docsOpen === key) docsOpen = null; } },
-      h("summary", { title: "All " + n + " documents of this task, the main one first" }, "All " + n, icon("chev", 12, "#ffffff")),
-      h("div", { class: "menu" }, it.docs.map((d, i) => h("button", { title: tip(d), onclick: (e) => { e.currentTarget.closest("details").open = false; openLink(go(d)); } },
-        h("span", { class: "dname" }, d.name),
-        i === 0 ? h("span", { class: "tiny" }, "main") : [],
-        d.folder ? h("span", { class: "tiny" }, "folder") : [],
-        d.exists === false ? h("span", { class: "tiny bad" }, "file not found") : [])))));
+      h("summary", { title: review ? "The " + n + " files to review, as in the checklist" : "All " + n + " documents of this task, the main one first" }, "All " + n, icon("chev", 12, "#ffffff")),
+      h("div", { class: "menu" }, list.map((f, i) => h("button", { title: tip(f.d), onclick: (e) => { e.currentTarget.closest("details").open = false; openLink(go(f.d)); } },
+        h("span", { class: "dname" }, f.d.name),
+        review ? (f.done ? h("span", { class: "tiny" }, "reviewed") : f.d === main ? h("span", { class: "tiny" }, "next") : []) : i === 0 ? h("span", { class: "tiny" }, "main") : [],
+        f.d.folder ? h("span", { class: "tiny" }, "folder") : [],
+        f.d.exists === false ? h("span", { class: "tiny bad" }, "file not found") : [])))));
 }
 function docRow(d) {
   const target = d.hook || d.file || d.web;
@@ -811,35 +841,65 @@ async function copyText(s, done) {
   }
   catch (e) { flash("Could not copy automatically; select the prompt in the notes instead.", true); }
 }
-// Its checklist, as on the board: the indented "- " lines under the task; a step is ticked here with @done
-// on its own line, through the board's edit (conflict check, backup).
-function checklistBox(it) {
+// Its checklist, as on the board: the indented "- " lines under the task; a step is ticked with @done on
+// its own line. Steps are added and removed here too, through the board's edit (conflict check, backup).
+function checklistBox(it, ro, onTick) {
   const cl = it.checklist || [];
-  if (!cl.length) return [];
+  if (!cl.length && (it.done || ro)) return [];
   const done = cl.filter((c) => c.done).length;
-  return h("div", { class: "checklist" },
-    h("div", { class: "chead" }, h("b", {}, "Checklist"), h("span", {}, done + " of " + cl.length + " done")),
-    h("div", { class: "cbar", "aria-hidden": "true" }, h("i", { style: "width:" + Math.round((100 * done) / cl.length) + "%" })),
-    cl.map((c) => h("label", { class: "step" + (c.done ? " done" : ""), style: c.depth ? "padding-left:" + c.depth * 22 + "px" : false },
-      h("input", { type: "checkbox", checked: c.done ? "checked" : false, disabled: it.readonly, onchange: (e) => checkStep(c, e.target.checked) }),
-      h("span", {}, c.text))));
+  const add = h("input", { class: "addstep", id: "i-step", placeholder: cl.length ? "Add a step" : "Add a checklist step", "aria-label": "Add a step to the checklist", disabled: ro,
+    onkeydown: (e) => { if (e.key === "Enter" && e.target.value.trim()) edit("step", { text: e.target.value.trim() }); } });
+  return h("div", { class: "checklist" + (cl.length ? "" : " empty") },
+    h("div", { class: "chead" }, h("b", {}, "Checklist"), cl.length ? h("span", {}, done + " of " + cl.length + " done") : h("span", {}, "none yet")),
+    cl.length ? h("div", { class: "cbar", "aria-hidden": "true" }, h("i", { style: "width:" + Math.round((100 * done) / cl.length) + "%" })) : [],
+    cl.map((c) => h("div", { class: "steprow" },
+      h("label", { class: "step" + (c.done ? " done" : ""), style: c.depth ? "padding-left:" + c.depth * 22 + "px" : false },
+        h("input", { type: "checkbox", checked: c.done ? "checked" : false, disabled: ro, onchange: (e) => onTick(c, e.target.checked) }),
+        h("span", {}, c.doc != null ? icon("doc", 13, "#8e8e93", "file to review") : [], c.text)),
+      ro ? [] : h("button", { class: "x", "aria-label": "Remove the step " + c.text, title: "Remove this step",
+        onclick: () => edit("unstep", { line: c.line, expected: c.raw }) }, "×"))),
+    it.done ? [] : add);
 }
-async function checkStep(c, done) {   // tick or untick one step, as tick() does a task
-  if (!detail || busy) { renderDetail(); return; }
-  const it = detail.item;
-  busy = true;
-  const r = await api("/api/hub/edit", { path: detail.path, id: it.id, expected_line: it.raw, op: "check", args: { line: c.line, expected: c.raw, done } });
-  busy = false;
-  if (r.ok) { render(r.data); await loadDetail(); setSync("saved " + new Date().toLocaleTimeString()); return; }
-  if (r.status === 409) {
-    const s = await api("/api/hub");
-    if (s.ok) render(s.data);
-    await loadDetail();
-    flash(r.data.error + " The hub has been refreshed; redo the change if it is still needed.", true);
-    return;
-  }
-  renderDetail();
-  flash(r.data.error || "Error " + r.status, true);
+// Claude's run, as on the board: how long it has run, and whether its job or session is still going
+function running(it) { return !it.done && it.type !== "session" && it.owner === "claude" && it.status === "inprogress"; }
+function minutesText(m) {   // 7 min, 2 h 30 min, 3 d 4 h
+  m = Math.max(0, Math.round(m));
+  if (m < 60) return m + " min";
+  if (m < 1440) return Math.floor(m / 60) + " h" + (m % 60 ? " " + (m % 60) + " min" : "");
+  return Math.floor(m / 1440) + " d" + (Math.floor((m % 1440) / 60) ? " " + Math.floor((m % 1440) / 60) + " h" : "");
+}
+function runStart(it, a) {   // when its run began, or null when that is not recorded
+  const s = (a && a.job && a.job.started) || (it.started ? it.started.replace(" ", "T") : "");
+  const t = s ? new Date(s) : null;
+  return t && !isNaN(t) ? t : null;
+}
+function clockText(t) {   // 12:40 today, else Oct 9, 12:40
+  const hm = t.toTimeString().slice(0, 5);
+  return t.toDateString() === new Date().toDateString() ? hm : t.toLocaleDateString("en-US", { month: "short", day: "numeric" }) + ", " + hm;
+}
+function activityText(a) {   // what the server knows of a run: [text, needs a look]
+  if (!a) return ["not known: the server is older than this page", false];
+  if (a.job) return ["a registered " + a.job.kind + " job", false];
+  if (a.registry_unreadable) return ["the job registry could not be read", true];
+  if (!a.sessions) return ["no @sessionid: cannot tell which session runs it", true];
+  if (!a.last) return ["the session's transcript was not found", true];
+  return a.idle ? ["no session activity for " + minutesText(a.quiet_min) + ": still running?", true] : ["session active " + minutesText(a.quiet_min) + " ago", false];
+}
+function runBox(it, a) {
+  if (!running(it)) return [];
+  const t = runStart(it, a), [act, look] = activityText(a);
+  return h("div", { class: "runbox" + (look ? " quiet" : "") },
+    h("div", { class: "shead" }, "Claude's run"),
+    h("dl", {},
+      h("dt", {}, "Running"), h("dd", {}, t ? "since " + clockText(t) + " · " + minutesText((Date.now() - t) / 60000) : "start not recorded"),
+      h("dt", {}, "Activity"), h("dd", { class: look ? "look" : "" }, act)));
+}
+const STATUSES = [["open", "Open"], ["inprogress", "In progress"], ["waiting", "Waiting"]];
+function needsChip(id, ro, it) {   // a prerequisite, with × to remove it
+  const c = chip(id, "need");
+  if (!ro) c.append(h("button", { class: "x", "aria-label": "Remove " + id + " from what " + it.id + " needs", title: "Remove from needs",
+    onclick: (e) => { e.stopPropagation(); edit("needs", { needs: it.needs.filter((n) => n !== id) }); } }, icon("x", 10, "#636366")));
+  return c;
 }
 const APP_NAME = { vscode: "VS Code", ghostty: "Ghostty", terminal: "Terminal" };
 function markRunning(sids, url, still) {   // reveal Go to session for the sessions that run now; still(): the same task is shown
@@ -856,17 +916,22 @@ async function gotoSession(sid) {
   const r = await api("/api/hub/session/focus", { path: detail.path, sid });
   flash(r.ok ? r.data.message : r.data.error || "Error " + r.status, !r.ok);
 }
-async function tick(op) {   // tick done or reopen, with the board's conflict check and backup
+// The field each edit takes its text from, emptied once the edit is saved (a redraw of the same task keeps what is typed)
+const OP_FIELD = { done: "t-done", reopen: "t-done", note: "t-note", step: "i-step", needs: "i-needs" };
+function tick(op) {   // tick done or reopen
+  return edit(op, { note: el("t-done").value }, (op === "done" ? "Ticked done" : "Reopened") + " in " + detail.file + ".");
+}
+async function edit(op, args, said) {   // any edit the board makes, to the task shown, with the board's conflict check and backup
   if (!detail || busy) { renderDetail(); return; }
   const it = detail.item, file = detail.file;
   busy = true;
-  const r = await api("/api/hub/edit", { path: detail.path, id: it.id, expected_line: it.raw, op, args: { note: el("t-done").value } });
+  const r = await api("/api/hub/edit", { path: detail.path, id: it.id, expected_line: it.raw, op, args });
   busy = false;
   if (r.ok) {
-    el("t-done").value = "";   // saved with the tick
+    if (OP_FIELD[op] && el(OP_FIELD[op])) el(OP_FIELD[op]).value = "";   // saved
     render(r.data);
     await loadDetail();
-    flash((op === "done" ? "Ticked done" : "Reopened") + " in " + file + ".");
+    flash(said || "Saved to " + file + ".");
     setSync("saved " + new Date().toLocaleTimeString());
     return;
   }
@@ -885,13 +950,16 @@ async function openLink(url) {
   if (!r.ok) flash(r.data.error || "Could not open the link.", true);
   else if (r.data.message) flash(r.data.message);   // an app or script: shown in Finder, not run
 }
-const STATUS_NAME = { inprogress: "In progress", waiting: "Waiting", open: "Open" };
+// The board's panel (renderItem in static/index.html), section for section and in its order, with the
+// hub's own additions: the project in the top line, its deadlines, and Open on its board.
 function renderItem(it) {
   const p = projectFor(detail.path), c = p ? colorOf(p.color, p.index) : PALETTE.blue;
   const stateBadge = it.done ? h("span", { class: "badge done" }, "Done " + (it.tags.done || ""))
     : it.ready ? h("span", { class: "badge ready" }, "Ready") : h("span", { class: "badge blocked" }, "Blocked");
   const who = it.type === "session" ? "hand-off" : it.owner === "me" ? "for you" : it.owner === "claude" ? "Claude's" : it.owner ? "owner: " + it.owner : "";
-  const firstDoc = it.docs[0];
+  const ro = it.readonly, firstDoc = it.docs[0];
+  const addNeed = h("input", { class: "addneed", id: "i-needs", placeholder: "Add an id", "aria-label": "Add a prerequisite by its id", disabled: ro,
+    onkeydown: (e) => { if (e.key === "Enter" && e.target.value.trim()) edit("needs", { needs: it.needs.concat(e.target.value.split(/[\s,;]+/).filter(Boolean)) }); } });
   return [
     h("div", { class: "dmeta", title: detail.path }, peTile(p && p.emoji, c, detail.project),
       [detail.project, it.type, who, it.id, it.section.split(" / ").slice(1).join(" / ")].filter(Boolean).join(" · ")),   // the section, under the tracker's title
@@ -903,18 +971,21 @@ function renderItem(it) {
       h("h2", {}, it.title)),
     h("textarea", { id: "t-done", class: "outcome", placeholder: it.done ? "Optional: why it is being reopened (type before unticking)" : "Optional: one-line outcome, saved as a dated note when you tick the box" }),   // under the tick box and the task's name, as on the board
     h("div", { class: "badges" }, stateBadge,
-      it.status && !it.done && it.status !== "open" ? h("span", { class: "badge" }, STATUS_NAME[it.status] || it.status) : [],
       it.priority === "high" ? h("span", { class: "badge" }, icon("star", 11, "#3a3a3f"), "High priority") : it.priority ? h("span", { class: "badge" }, it.priority === "low" ? "Low priority" : "Priority " + it.priority) : []),
-    (() => { const n = activityNote(detail.activity); return n ? h("p", { class: n[1] ? "warn" : "muted" }, n[0].charAt(0).toUpperCase() + n[0].slice(1) + (detail.activity.session ? " (session " + detail.activity.session.slice(0, 8) + ")" : "")) : []; })(),
+    it.done ? [] : h("div", { class: "seg", role: "group", "aria-label": "Status" }, STATUSES.map(([v, name]) =>
+      h("button", { "aria-pressed": (it.status || "open") === v ? "true" : "false", disabled: ro, onclick: () => { if ((it.status || "open") !== v) edit("status", { status: v }); } }, name))),
     h("div", { class: "actions" },
       firstDoc ? openDocs(it, detail.path + "#" + it.id) : [],
-      h("a", { class: "button board" + (firstDoc ? "" : " primary"), href: detail.url, title: "Open it on its board, to change its status, needs or notes" }, "Open on its board")),
-    checklistBox(it),
+      h("a", { class: "button board" + (firstDoc ? "" : " primary"), href: detail.url, title: "Open it on its board, among the tasks around it" }, "Open on its board")),
+    checklistBox(it, ro, (s, done) => edit("check", { line: s.line, expected: s.raw, done })),
+    h("h3", {}, "Add a note"), h("textarea", { id: "t-note", placeholder: "Saved as a dated line under the task" }),
+    h("div", { class: "row" }, h("button", { disabled: ro, onclick: () => edit("note", { note: el("t-note").value }) }, "Add note")),
     msgBox(),
-    sessionBox(it),   // its Claude Code session comes before the facts, as on the board
+    runBox(it, detail.activity),
+    sessionBox(it),
     h("dl", { class: "facts" },
       p && p.deadlines.length ? [h("dt", {}, "Deadlines"), h("dd", {}, h("div", { class: "dls" }, p.deadlines.map((d) => deadlineSpan(d, c))))] : [],
-      h("dt", {}, "Needs"), h("dd", {}, it.needs.length ? h("div", { class: "chips" }, it.needs.map((n) => chip(n, "need"))) : h("span", { class: "muted" }, "Nothing")),
+      h("dt", {}, "Needs"), h("dd", {}, h("div", { class: "chips" }, it.needs.map((n) => needsChip(n, ro, it)), addNeed)),
       h("dt", {}, "Needed by"), h("dd", {}, it.needed_by.length ? h("div", { class: "chips" }, it.needed_by.map((n) => chip(n))) : h("span", { class: "muted" }, "Nothing")),
       h("dt", {}, "Documents"), h("dd", {}, it.docs.length ? h("div", { class: "docs" }, it.docs.map(docRow)) : h("span", { class: "muted" }, "None linked")),
       h("dt", {}, "Notes"), h("dd", {}, (() => { const ns = it.notes.filter((n) => !BARE_URL.test(n)); return ns.length ? h("div", { class: "notes" }, ns.map(noteLine)) : h("span", { class: "muted" }, "No notes"); })())),
@@ -922,15 +993,16 @@ function renderItem(it) {
     h("details", { class: "line" }, h("summary", {}, "Line in the file"), h("p", {}, "line " + (it.line + 1) + ": " + it.raw.trim())),
   ];
 }
-let shownKey = null;   // the task the details column last showed, so a redraw of it keeps a half-typed outcome
+let shownKey = null;   // the task the details column last showed, so a redraw of it keeps what is half-typed
+const TYPED = ["t-done", "t-note", "i-step", "i-needs"];   // the outcome, a note, a step, a prerequisite
 function renderDetail() {
-  const d = el("detail"), box = el("t-done");
-  const typed = box ? box.value : "", hadFocus = box && document.activeElement === box;
+  const d = el("detail"), focused = document.activeElement && TYPED.includes(document.activeElement.id) ? document.activeElement.id : null;
+  const typed = Object.fromEntries(TYPED.map((k) => [k, el(k) ? el(k).value : ""]));
   const key = selected ? selected.path + "#" + selected.id : null, same = key === shownKey;
   shownKey = detail && !detail.error ? key : null;
   if (!selected) {
     d.replaceChildren(h("h2", {}, "Task details"),
-      h("p", { class: "muted" }, "Click a task to see its details here: what it needs and what needs it, its documents, notes and Claude Code sessions. You can tick it done here, open its documents and copy its prompts; to change its status, needs or notes, open it on its board."));   // the heading stays an h2 for the tests and screen readers
+      h("p", { class: "muted" }, "Click a task to see its details here, as on its board: tick it done, set its status, work through its checklist, add notes and prerequisites, open its documents and copy its prompts."));   // the heading stays an h2 for the tests and screen readers
     return;
   }
   if (!detail || detail.error) {
@@ -940,7 +1012,9 @@ function renderDetail() {
   d.replaceChildren(...[].concat(renderItem(detail.item)).flat(Infinity));
   const shown = selected.path + "#" + selected.id;
   markRunning(detail.item.sessionids || [], "/api/hub/sessions/running?path=" + encodeURIComponent(detail.path) + "&", () => selected && selected.path + "#" + selected.id === shown);
-  if (same && typed) { el("t-done").value = typed; if (hadFocus) el("t-done").focus(); }
+  if (!same) return;
+  TYPED.forEach((k) => { if (typed[k] && el(k)) el(k).value = typed[k]; });
+  if (focused && el(focused)) el(focused).focus();
 }
 
 async function loadDetail() {

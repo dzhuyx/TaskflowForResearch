@@ -115,6 +115,7 @@ An excerpt, for illustration: `<session id>` stands for a real one, and ab.3 is 
 - `@needs` draws the arrows and decides what is ready.
 - Indented `- ` lines under a task are its checklist, ticked with `@done`.
 - A task's first linked document is its main one: the **Open** button opens it, and **All N** beside the button lists the others. `taskflow.py TRACKER --link ID PATH` puts a document first (with `--also`, after the others), so you never reorder links by hand. Only files closely related to the main document follow it (earlier versions, an audio summary, its reviews, the results behind it); a separate document gets its own review.
+- A review's checklist lists the files you must read: a step named for a linked file is a file to review, which you tick when you have read it. Then **Open** opens the first one not yet ticked, and **All N** lists just those, so earlier versions and results stay out of the way. `--link ID PATH --to-review` links a file and adds its step.
 - `@status(inprogress)`, `@done(…)`, `@priority(high)`, and the project's `@harddeadline` and `@softdeadline` on the first line, do what their names say. `skills/taskflow-tracker/SKILL.md` has the full rules.
 
 ## The board
@@ -150,7 +151,7 @@ A hand-off is a task for you: go back to a Claude Code session and give it an in
 
 - **Projects** (left): one card per tracker, with its deadlines (dashed: soft, internal; solid: hard, external), its progress, and the Claude tasks running in it, flagged when their session has gone quiet.
 - **What you can act on now** (middle): your unblocked tasks and hand-offs across every project, ranked by priority; then, within each priority, by how much finishing them frees Claude to work (each Claude task waiting on one counts 1, shared among everything that task still waits for, and a hand-off half that), so Claude's sessions are not left idle; then by how close the project's deadline is; then by what else finishing them starts.
-- **The task you clicked** (right): its documents, checklist and session; tick it or its steps here, or open it on its board.
+- **The task you clicked** (right): the board's panel for it, with the same edits (tick it, set its status, work through its checklist, add a note or a prerequisite), its documents and session, and a button to open it on its board.
 
 ## Progress
 

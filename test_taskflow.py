@@ -45,6 +45,8 @@ Decisions:
 Done:
 \t- Earlier work @type(action) @owner(claude) @id(wi.5) @done(2026-10-07)
 """
+# the same, with each review's file listed in its checklist as one to review, as --check asks
+LISTED = SAMPLE.replace("\t\tCheck the proof.\n", "\t\tCheck the proof.\n\t\t- a.pdf\n").replace("\t\tfile:///tmp/b.pdf\n", "\t\tfile:///tmp/b.pdf\n\t\t- b.pdf\n")
 TODAY = "2026-10-08"
 SID_A = "0000aaaa-1111-2222-3333-444455556666"
 SID_B = "bbbb0000-1111-2222-3333-444455556666"
@@ -73,7 +75,7 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(by["wi.3"]["unmet"], ["wi.1", "wi.2"])
         self.assertTrue(by["wi.5"]["done"] and not by["wi.5"]["ready"])
         self.assertEqual(by["wi.3"]["section"], "Decisions")
-        self.assertEqual(st["warnings"], [])
+        self.assertEqual(tf.build_state(LISTED, Path("x.taskpaper"))["warnings"], [])
 
     def test_ready_review_without_document_is_warned(self):
         # wi.2 is ready for you; without its document line, --check warns ("wi 95 has no file linked")
@@ -81,8 +83,8 @@ class ParseTests(unittest.TestCase):
         st = tf.build_state(txt, Path("x.taskpaper"))
         self.assertTrue(any(w.startswith("wi.2 is a review ready for you with no document") for w in st["warnings"]))
         blocked = txt.replace("@status(open) @id(wi.2)", "@status(open) @id(wi.2) @needs(wi.4)")   # not ready yet: no warning
-        self.assertFalse(any(w.startswith("wi.2 is a review") for w in tf.build_state(blocked, Path("x.taskpaper"))["warnings"]))
-        self.assertEqual(tf.build_state(SAMPLE, Path("x.taskpaper"))["warnings"], [])
+        self.assertFalse(any(w.startswith("wi.2 is a review ready") for w in tf.build_state(blocked, Path("x.taskpaper"))["warnings"]))
+        self.assertEqual(tf.build_state(LISTED, Path("x.taskpaper"))["warnings"], [])
 
     def test_waiting_without_open_needs_is_warned(self):
         # wi.3 waits but needs nothing open: the board would show it as ready, so --check warns
@@ -93,7 +95,7 @@ class ParseTests(unittest.TestCase):
         done = SAMPLE.replace("@id(wi.1)", "@id(wi.1) @done(2026-10-08)").replace("@id(wi.2)", "@id(wi.2) @done(2026-10-08)")
         st = tf.build_state(done, Path("x.taskpaper"))
         self.assertTrue(any(w.startswith("wi.3 is waiting") for w in st["warnings"]))     # its needs are done
-        self.assertEqual(tf.build_state(SAMPLE, Path("x.taskpaper"))["warnings"], [])     # blocked waiting items are fine
+        self.assertEqual(tf.build_state(LISTED, Path("x.taskpaper"))["warnings"], [])     # blocked waiting items are fine
 
     def test_unknown_need_and_duplicate_id_are_warned(self):
         bad = SAMPLE.replace("@needs(wi.3)", "@needs(wi.99)").replace("@id(wi.5)", "@id(wi.4)")
@@ -348,6 +350,40 @@ class LinkDocTests(unittest.TestCase):
         self.assertEqual(warn(two), [])
         self.assertEqual(warn(linked.replace("@id(r.3)", "@id(r.3) @done(2026-10-12)")), [])   # its review is finished
 
+    def test_files_to_review_are_the_checklist_steps_that_name_a_linked_document(self):
+        # the checklist lists the files the user must review; Open offers just those
+        state = lambda text: tf.build_state(text, self.dir / "t.taskpaper", with_sessions=False)
+        item = lambda text: next(i for i in state(text)["items"] if i["id"] == "r.1")
+        warn = lambda text: [w for w in state(text)["warnings"] if w.startswith("r.1 is a review whose checklist names no file")]
+        self.assertEqual(len(warn(self.text)), 1)                                    # an open review with documents and no file to review
+        self.assertEqual(warn(self.text.replace("@id(r.1)", "@id(r.1) @done(2026-10-14)")), [])
+        docs = tf.docs_for([self.url("report_20261011_v1.md"), self.url("report_20261012_v2.md"), self.url("results")])
+        self.assertEqual([tf.step_doc(t, docs) for t in ("report_20261012_v2.md", "results — the tables", "results2", "Read results", "report")],
+                         [1, 2, None, None, None])
+        new, said = tf.review_step(self.text, "r.1", str(self.dir / "report_20261011_v1.md"))
+        self.assertEqual(said, "Added report_20261011_v1.md to the checklist of r.1, as a file for you to review.")
+        self.assertEqual([(c["text"], c["doc"]) for c in item(new)["checklist"]], [("report_20261011_v1.md", 1)])
+        self.assertEqual(new.split("\n")[6], "\t\t- report_20261011_v1.md")             # one level under the task, at its end
+        self.assertEqual((warn(new), [w for w in state(new)["warnings"] if "first document" in w]), ([], []))   # Open follows the checklist
+        self.assertEqual(tf.review_step(new, "r.1", str(self.dir / "report_20261011_v1.md"))[0], new)   # listed once
+        with self.assertRaises(tf.EditError):
+            tf.review_step(new, "r.1", str(self.dir / "summary.m4a"))                # not linked
+        v2, _, _ = tf.link_doc(new, "r.1", str(self.dir / "report_20261012_v2.md"), get_hook=self.hook)
+        self.assertIn("older than report_20261012_v2.md", [w for w in state(v2)["warnings"] if "its checklist has the user review" in w][0])
+        v2, said = tf.review_step(v2, "r.1", str(self.dir / "report_20261012_v2.md"))
+        self.assertIn("in place of report_20261011_v1.md", said)                       # the new version replaces the unticked old one
+        self.assertEqual([c["text"] for c in item(v2)["checklist"]], ["report_20261012_v2.md"])
+        self.assertEqual(state(v2)["warnings"], [])
+        ticked = new.replace("\t\t- report_20261011_v1.md", "\t\t- report_20261011_v1.md @done(2026-10-14 10:00)")
+        both, _, _ = tf.link_doc(ticked, "r.1", str(self.dir / "report_20261012_v2.md"), get_hook=self.hook)
+        both, _ = tf.review_step(both, "r.1", str(self.dir / "report_20261012_v2.md"))
+        self.assertEqual([(c["text"], c["done"]) for c in item(both)["checklist"]], [("report_20261011_v1.md", True), ("report_20261012_v2.md", False)])
+        self.assertEqual(state(both)["warnings"], [])                                 # a version the user has read stays, ticked
+        gone = tf.unlink_doc(v2, "r.1", str(self.dir / "report_20261012_v2.md"))       # its unticked step goes with the link
+        self.assertEqual((item(gone)["checklist"], "report_20261012_v2.md" in gone), ([], False))
+        kept = tf.unlink_doc(both, "r.1", str(self.dir / "report_20261011_v1.md"))     # a ticked one stays, as a record
+        self.assertEqual([(c["text"], c["doc"]) for c in item(kept)["checklist"]], [("report_20261011_v1.md", None), ("report_20261012_v2.md", 0)])
+
     def test_link_from_the_command_line_writes_with_a_backup(self):
         t = self.dir / "t_tracker.taskpaper"
         t.write_text(self.text, encoding="utf-8")
@@ -358,6 +394,13 @@ class LinkDocTests(unittest.TestCase):
             self.assertIn("main document of r.1", said)
             self.assertEqual(self.docs(t.read_text(encoding="utf-8")), ["report_20261011_v1.md", "results"])
             self.assertTrue(any((self.dir / "backups").rglob("*")))
+            with mock.patch.object(tf, "hookmark_url", self.hook):
+                said = tf.link_item(t, "r.1", str(self.dir / "results"), also=True, review=True)
+            self.assertEqual(said, f"Added results to the checklist of r.1, as a file for you to review. ({t.name})")   # linked there already
+            said = tf.link_item(t, "r.1", str(self.dir / "results"), also=True, review=True)
+            self.assertEqual(said, "results is already in the checklist of r.1.")
+            said = tf.link_item(t, "r.1", str(self.dir / "results"), unlink=True)
+            self.assertEqual(said, f"Removed the link to results from r.1 and its step from the checklist. ({t.name})")
             with self.assertRaises(SystemExit):
                 tf.link_item(t, "r.1", str(self.dir / "missing.pdf"))
         finally:
@@ -502,9 +545,9 @@ class CliTests(unittest.TestCase):
 
     def test_check_flags_colon_notes(self):
         p = self.dir / "t.taskpaper"
-        p.write_text(SAMPLE.replace("\t\tCheck the proof.", "\t\tCheck the proof:"), encoding="utf-8")
+        p.write_text(LISTED.replace("\t\tCheck the proof.", "\t\tCheck the proof:"), encoding="utf-8")
         self.assertEqual(tf.check(p), 1)
-        p.write_text(SAMPLE, encoding="utf-8")
+        p.write_text(LISTED, encoding="utf-8")
         self.assertEqual(tf.check(p), 0)
 
 
@@ -980,7 +1023,7 @@ class HubTests(unittest.TestCase):
         try:
             self.assertEqual(post(tick, token=False)[0], 403)
             self.assertEqual(post(dict(tick, path=str(self.b)))[0], 400)                     # not listed
-            self.assertEqual(post(dict(tick, op="status", args={"status": "waiting"}))[0], 400)   # ticking only
+            self.assertEqual(post(dict(tick, op="rename", args={}))[0], 400)                   # not an edit the board makes
             self.assertEqual(post(dict(tick, expected_line="\t- something else"))[0], 409)  # the board's conflict check
             self.assertEqual(self.a.read_text(encoding="utf-8"), SAMPLE)                    # nothing written so far
             code, st = post(tick)
@@ -1006,6 +1049,14 @@ class HubTests(unittest.TestCase):
             self.assertEqual(code, 200)
             self.assertIn("- Read section 2 @done(", self.a.read_text(encoding="utf-8"))
             self.assertEqual(next(t for t in st["groups"]["me"] if t["id"] == "wi.1")["steps"], [1, 1])
+            code, st = post({"path": str(self.a), "id": "wi.1", "expected_line": line_of(self.a.read_text(encoding="utf-8"), "wi.1"),
+                             "op": "status", "args": {"status": "waiting"}})                 # the board's other edits, from the hub
+            self.assertEqual(code, 200)
+            self.assertIn("@status(waiting)", line_of(self.a.read_text(encoding="utf-8"), "wi.1"))
+            code, st = post({"path": str(self.a), "id": "wi.1", "expected_line": line_of(self.a.read_text(encoding="utf-8"), "wi.1"),
+                             "op": "note", "args": {"note": "Asked about section 3"}})
+            self.assertEqual(code, 200)
+            self.assertTrue(next(i for i in tf.parse(self.a.read_text(encoding="utf-8")) if i["id"] == "wi.1")["notes"][-1].endswith(": Asked about section 3"))
         finally:
             server.shutdown()
             server.server_close()
@@ -1085,7 +1136,7 @@ class JobTests(unittest.TestCase):
         tf.BACKUP_ROOT = self.dir / "backups"
         tf.HOOK_FN = lambda u: "hook://file/T?n=x"
         self.tracker = self.dir / "t.taskpaper"
-        self.tracker.write_text(SAMPLE, encoding="utf-8")
+        self.tracker.write_text(LISTED, encoding="utf-8")
         self.saved_env = os.environ.get("CLAUDE_CODE_SESSION_ID")
         os.environ["CLAUDE_CODE_SESSION_ID"] = SID_A        # as inside a Claude Code session
 
@@ -1136,6 +1187,7 @@ class JobTests(unittest.TestCase):
         self.assertEqual(review["owner"], "me")
         self.assertIn("Review — results of Claude jobs:", text)
         self.assertIn(tf.file_url(marker.resolve()), text)
+        self.assertEqual([(c["text"], c["done"]) for c in review["checklist"]], [("report.md", False)])   # its results, to review
         self.assertIn("Highest @id used: wi.6.", text)
         self.assertLess(text.index("Review — results of Claude jobs:"), text.index("Done:"))
         self.assertEqual(self.jobs(), [])
@@ -1559,9 +1611,11 @@ class FreshInstallTests(unittest.TestCase):
         doc = t.parent / "report_v1.pdf"
         doc.write_bytes(b"%PDF")
         t.write_text(text + "\nWork:\n"                                                        # what a session adds
-                     f"\t- Review the report @type(review) @owner(me) @id(ab.1) @added(2026-10-11 09:00)\n\t\t{tf.file_url(doc)}\n"
+                     "\t- Review the report @type(review) @owner(me) @id(ab.1) @added(2026-10-11 09:00)\n"
                      "\t\t- Read §1\n\t\t- Answer Q1–Q3\n"
                      "\t- Run the next step @type(work) @owner(claude) @id(ab.2) @needs(ab.1) @added(2026-10-11 09:01)\n", encoding="utf-8")
+        code, out = self.tf_run(t, "--link", "ab.1", str(doc), "--to-review")                  # linked, and listed as a file to review
+        self.assertEqual((code, "Added report_v1.pdf to the checklist of ab.1" in out), (0, True), out)
         before = t.read_text(encoding="utf-8")
         code, out = self.tf_run(t, "--add-hook-links")
         self.assertEqual((code, "not installed" in out, t.read_text(encoding="utf-8") == before), (0, True, True), out)
@@ -1578,7 +1632,8 @@ class FreshInstallTests(unittest.TestCase):
             with urllib.request.urlopen(url + "api/state", timeout=10) as r:
                 st = json.load(r)
             it = next(i for i in st["items"] if i["id"] == "ab.1")
-            self.assertEqual((st["hookmark"], st["missing_hooks"], [d["name"] for d in it["docs"]], len(it["checklist"])), (False, 0, ["report_v1.pdf"], 2))
+            self.assertEqual((st["hookmark"], st["missing_hooks"], [d["name"] for d in it["docs"]], [c["doc"] for c in it["checklist"]]),
+                             (False, 0, ["report_v1.pdf"], [None, None, 0]))
             with urllib.request.urlopen(url, timeout=10) as r:
                 self.assertIn("cytoscape", r.read().decode())                                    # the page and its bundled libraries
         finally:

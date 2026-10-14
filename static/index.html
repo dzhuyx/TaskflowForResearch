@@ -147,6 +147,7 @@
   .checklist .step { display: flex; gap: 10px; align-items: flex-start; padding: 6px 0; font-size: 13px; line-height: 1.4; cursor: pointer; }
   .checklist .step input { flex: none; width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--ok); cursor: pointer; }
   .checklist .step.done span { color: var(--muted); text-decoration: line-through; }
+  .checklist .step span svg.i { vertical-align: -2px; margin-right: 5px; }   /* a step that names a file to review */
   .checklist .steprow { display: flex; align-items: flex-start; gap: 4px; }
   .checklist .steprow .step { flex: 1; min-width: 0; }
   .checklist .steprow .x { flex: none; width: 26px; height: 26px; margin-top: 3px; border: 0; border-radius: 13px; background: transparent; color: var(--faint); font-size: 16px; line-height: 1; cursor: pointer; opacity: 0; }
@@ -925,7 +926,7 @@ function render(st, relayout) {
       const inBox = dx >= BAR_W - 2 && dx <= TICK_X + CB_SIZE + 6 && dy >= ty - 6 && dy <= ty + CB_SIZE + 6;
       if (inBox) toggleDone(n.id()); else select(n.id());
     });
-    cy.on("dbltap", "node", (e) => { const it = byId(e.target.id()); const d = it && it.docs[0]; if (d) openLink(d.hook || d.file || d.web); });
+    cy.on("dbltap", "node", (e) => { const it = byId(e.target.id()); const d = it && nextDoc(it); if (d) openLink(d.hook || d.file || d.web); });
     cy.on("mouseover", "node", (e) => { el("cy").style.cursor = "pointer"; hoverEdges(e.target); });
     cy.on("mouseout", "node", () => { el("cy").style.cursor = ""; hoverEdges(null); });
     cy.on("tapstart", (e) => { if (e.target === cy) el("cy").style.cursor = "grabbing"; });   // dragging the background
@@ -1106,23 +1107,34 @@ function renderOverview() {
 
 const BARE_URL = /^(?:file|hook|https?):\/\/\S+$/;
 // The Open button (and double-clicking its box) opens the task's first document, its main one; with two or more, All N beside it lists every one,
-// the main one first, in the order they are linked
+// the main one first, in the order they are linked. When its checklist names files to review, Open and the list offer
+// just those, in checklist order, and Open opens the first not yet ticked; the other links stay under Documents.
 let docsOpen = null;   // the task whose list of documents is open, so that a redraw keeps it open
+function reviewFiles(it) {   // the checklist's steps that name a linked document (the server's step_doc): [{ d, done }]
+  const seen = new Set(), out = [];
+  (it.checklist || []).forEach((c) => { if (c.doc != null && it.docs[c.doc] && !seen.has(c.doc)) { seen.add(c.doc); out.push({ d: it.docs[c.doc], done: c.done }); } });
+  return out;
+}
+function nextDoc(it) {   // the document Open opens
+  const files = reviewFiles(it);
+  return files.length ? (files.find((f) => !f.done) || files[0]).d : it.docs[0];
+}
 function openDocs(it, key) {
   const go = (d) => d.hook || d.file || d.web, tip = (d) => (d.path || go(d)) + (d.hook ? "\nOpens through Hookmark" : "");
-  const main = it.docs[0], n = it.docs.length;
+  const files = reviewFiles(it), review = files.length > 0, list = review ? files : it.docs.map((d) => ({ d, done: false }));
+  const main = nextDoc(it), n = list.length;
   const btn = h("button", { class: "primary opendoc", title: tip(main), onclick: () => openLink(go(main)) },
     icon("doc", 14, "#ffffff"), "Open " + (main.name.length > 34 ? main.name.slice(0, 32) + "…" : main.name));
   if (n < 2) return btn;
   return h("div", { class: "opengroup" }, btn,
     h("details", { class: "docmenu", open: docsOpen === key ? "open" : false,
         ontoggle: (e) => { if (e.target.open) docsOpen = key; else if (docsOpen === key) docsOpen = null; } },
-      h("summary", { title: "All " + n + " documents of this task, the main one first" }, "All " + n, icon("chev", 12, "#ffffff")),
-      h("div", { class: "menu" }, it.docs.map((d, i) => h("button", { title: tip(d), onclick: (e) => { e.currentTarget.closest("details").open = false; openLink(go(d)); } },
-        h("span", { class: "dname" }, d.name),
-        i === 0 ? h("span", { class: "tiny" }, "main") : [],
-        d.folder ? h("span", { class: "tiny" }, "folder") : [],
-        d.exists === false ? h("span", { class: "tiny bad" }, "file not found") : [])))));
+      h("summary", { title: review ? "The " + n + " files to review, as in the checklist" : "All " + n + " documents of this task, the main one first" }, "All " + n, icon("chev", 12, "#ffffff")),
+      h("div", { class: "menu" }, list.map((f, i) => h("button", { title: tip(f.d), onclick: (e) => { e.currentTarget.closest("details").open = false; openLink(go(f.d)); } },
+        h("span", { class: "dname" }, f.d.name),
+        review ? (f.done ? h("span", { class: "tiny" }, "reviewed") : f.d === main ? h("span", { class: "tiny" }, "next") : []) : i === 0 ? h("span", { class: "tiny" }, "main") : [],
+        f.d.folder ? h("span", { class: "tiny" }, "folder") : [],
+        f.d.exists === false ? h("span", { class: "tiny bad" }, "file not found") : [])))));
 }
 function docRow(d) {
   const target = d.hook || d.file || d.web;
@@ -1167,7 +1179,7 @@ function checklistBox(it, ro, onTick) {
     cl.map((c) => h("div", { class: "steprow" },
       h("label", { class: "step" + (c.done ? " done" : ""), style: c.depth ? "padding-left:" + c.depth * 22 + "px" : false },
         h("input", { type: "checkbox", checked: c.done ? "checked" : false, disabled: ro, onchange: (e) => onTick(c, e.target.checked) }),
-        h("span", {}, c.text)),
+        h("span", {}, c.doc != null ? icon("doc", 13, "#8e8e93", "file to review") : [], c.text)),
       ro ? [] : h("button", { class: "x", "aria-label": "Remove the step " + c.text, title: "Remove this step",
         onclick: () => editItem(it.id, "unstep", { line: c.line, expected: c.raw }) }, "×"))),
     it.done ? [] : add);

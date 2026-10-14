@@ -11,8 +11,8 @@ check("3 a registered job is shown, not flagged", JSON.stringify(note("de.2")) =
 check("4 an active session is shown, not flagged", JSON.stringify(note("de.3")) === JSON.stringify(["Session active 5 min ago", false]), note("de.3"));
 row("de.1").click();
 await until(() => det().querySelector("h2") && det().querySelector("h2").textContent === "Quiet run", 3000);
-const w = [...det().querySelectorAll("p.warn")].map((p) => p.textContent);
-check("5 the details repeat the flag with the session", w.some((t) => t.includes("No session activity since 2 h ago: still running? (session aaaa1111)")), w);
+const run = det().querySelector(".runbox"), look = run && run.querySelector("dd.look");
+check("5 the details flag it in Claude's run, as on the board", !!run && run.classList.contains("quiet") && !!look && look.textContent.startsWith("no session activity for 2 h") && look.textContent.endsWith("still running?"), run && run.textContent);
 det().querySelector("#t-done").value = "half-typed outcome"; det().querySelector("#t-done").focus();
 lastFull = 0; await poll(); await sleep(400);
 check("6 a minute's refresh keeps a half-typed outcome", det().querySelector("#t-done").value === "half-typed outcome" && document.activeElement === det().querySelector("#t-done"), det().querySelector("#t-done").value);
