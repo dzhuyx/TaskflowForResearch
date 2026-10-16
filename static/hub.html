@@ -570,6 +570,7 @@ function projectCard(p) {
       h("span", { class: "act" }, h("b", {}, r.me), " for you"),
       h("span", { class: "act" }, h("b", {}, r.handoff), " hand-off" + (r.handoff === 1 ? "" : "s")),
       h("span", {}, h("b", {}, p.claude_running), " being run by Claude"),
+      p.claude_queued ? h("span", {}, h("b", {}, p.claude_queued), " queued for Claude") : [],
       r.other ? h("span", { class: "act" }, h("b", {}, r.other), " other owner or none") : [],
       h("span", {}, h("b", {}, p.blocked), " blocked")));
   const running = state.groups.claude.filter((x) => x.path === p.path);
@@ -586,19 +587,21 @@ function idleCard(p) {   // a project with nothing to act on, no deadline and no
     h("span", { class: "count", title: p.folder + (p.changed ? " · changed " + p.changed : "") }, p.done + " of " + p.total + " done"),
     projectMenu(p));
 }
-function runningList(list) {   // Claude's tasks in progress in one project, each with its job or session activity; click for details
+function runningList(list) {   // Claude's tasks in progress or queued in one project, each with its job or session activity; click for details
   return h("div", { class: "running", "aria-label": "Being run by Claude" }, list.map((x) => {
-    const n = activityNote(x.activity);
+    const n = activityNote(x.activity), queued = x.status === "queued";   // queued: its session starts it next
+    const what = queued ? "Queued for Claude: its session starts it next" : "Being run by Claude";
     return h("div", {
       class: (n && n[1] ? "flag" : "") + (selected && selected.path === x.path && selected.id === x.id ? " sel" : ""), tabindex: "0",
-      title: "Being run by Claude. Click for details; double-click to open " + x.project + " on " + x.id + (x.activity && x.activity.last ? "\nLast written to the session's transcript at " + x.activity.last : ""),
+      title: what + ". Click for details; double-click to open " + x.project + " on " + x.id + (x.activity && x.activity.last ? "\nLast written to the session's transcript at " + x.activity.last : ""),
       onclick: () => select(x.path, x.id), ondblclick: () => { location.href = x.url; },
       onkeydown: (e) => { if (e.key === "Enter") select(x.path, x.id); } },
-      n && n[1] ? icon("warn", 14, "#8a3b00", "Needs a look") : icon("laptop", 14, "#3a3a3f", "Being run by Claude"),
+      n && n[1] ? icon("warn", 14, "#8a3b00", "Needs a look") : icon("laptop", 14, "#3a3a3f", what),
       h("span", { class: "rt" },
         h("span", { class: "t" }, h("span", { class: "id" }, x.id), " " + (x.title.length > 90 ? x.title.slice(0, 87) + "…" : x.title), x.priority === "high" ? " ★" : ""),
-        h("span", { class: "note" }, n ? n[0].charAt(0).toUpperCase() + n[0].slice(1) : "",
-          x.ready === false ? h("span", { class: "tiny bad", style: "margin-left:6px", title: "In progress while a prerequisite is unfinished" }, "blocked") : [],
+        h("span", { class: "note" }, queued ? h("span", { class: "tiny", style: "margin-right:6px" }, "queued") : [], n ? n[0].charAt(0).toUpperCase() + n[0].slice(1) : "",
+          x.ready === false ? (queued ? h("span", { class: "tiny", style: "margin-left:6px", title: "Its session starts it when its prerequisites are done" }, "after its prerequisites")
+            : h("span", { class: "tiny bad", style: "margin-left:6px", title: "In progress while a prerequisite is unfinished" }, "blocked")) : [],
           x.priority === "low" ? h("span", { class: "tiny", style: "margin-left:6px" }, "low") : [])));
   }));
 }
@@ -615,13 +618,13 @@ function renderProjects() {
   const nearest = (x) => (x.deadlines.length ? Math.min(...x.deadlines.map((d) => d.days_left)) : Infinity);
   const urg = (x) => (x.urgency == null ? Infinity : x.urgency);
   const byUrgency = (a, b) => urg(a) - urg(b) || nearest(a) - nearest(b) || a.name.localeCompare(b.name);
-  const idle = (x) => !x.problem && x.ready && !x.ready.me && !x.ready.handoff && !x.ready.other && !x.claude_running && !x.deadlines.length
+  const idle = (x) => !x.problem && x.ready && !x.ready.me && !x.ready.handoff && !x.ready.other && !x.claude_running && !x.claude_queued && !x.deadlines.length
     && !x.warnings.length && emojiEdit !== x.path && dlEdit !== x.path && colorEdit !== x.path;
   const busyOnes = live.filter((x) => !idle(x)).sort(byUrgency), idleOnes = live.filter(idle).sort((a, b) => a.name.localeCompare(b.name));
-  const running = state.groups.claude.length;
+  const running = state.groups.claude.filter((x) => x.status !== "queued").length, queued = state.groups.claude.length - running;
   el("projects").replaceChildren(
     h("div", { class: "coltitle", role: "heading", "aria-level": "2" }, h("span", {}, "Projects ", h("span", { class: "n" }, live.length)),
-      running ? h("span", { class: "aside" }, icon("laptop", 14, "#55555a"), running + " being run by Claude") : []),
+      running || queued ? h("span", { class: "aside" }, icon("laptop", 14, "#55555a"), running + " being run by Claude" + (queued ? ", " + queued + " queued" : "")) : []),
     h("div", { id: "pmsg" }),
     ...busyOnes.map(projectCard),
     ...(idleOnes.length ? [h("div", { class: "idlehead" }, "Nothing to do now"), ...idleOnes.map(idleCard)] : []),
@@ -894,7 +897,9 @@ function runBox(it, a) {
       h("dt", {}, "Running"), h("dd", {}, t ? "since " + clockText(t) + " · " + minutesText((Date.now() - t) / 60000) : "start not recorded"),
       h("dt", {}, "Activity"), h("dd", { class: look ? "look" : "" }, act)));
 }
-const STATUSES = [["open", "Open"], ["inprogress", "In progress"], ["waiting", "Waiting"]];
+const STATUSES = [["open", "Open"], ["queued", "Queued"], ["inprogress", "In progress"], ["waiting", "Waiting"]];
+// queued (a session starts it next) is for Claude's own tasks; it is offered on another item only while it has it
+const statusesFor = (it) => STATUSES.filter(([v]) => v !== "queued" || (it.type !== "session" && it.owner === "claude") || it.status === "queued");
 function needsChip(id, ro, it) {   // a prerequisite, with × to remove it
   const c = chip(id, "need");
   if (!ro) c.append(h("button", { class: "x", "aria-label": "Remove " + id + " from what " + it.id + " needs", title: "Remove from needs",
@@ -972,7 +977,7 @@ function renderItem(it) {
     h("textarea", { id: "t-done", class: "outcome", placeholder: it.done ? "Optional: why it is being reopened (type before unticking)" : "Optional: one-line outcome, saved as a dated note when you tick the box" }),   // under the tick box and the task's name, as on the board
     h("div", { class: "badges" }, stateBadge,
       it.priority === "high" ? h("span", { class: "badge" }, icon("star", 11, "#3a3a3f"), "High priority") : it.priority ? h("span", { class: "badge" }, it.priority === "low" ? "Low priority" : "Priority " + it.priority) : []),
-    it.done ? [] : h("div", { class: "seg", role: "group", "aria-label": "Status" }, STATUSES.map(([v, name]) =>
+    it.done ? [] : h("div", { class: "seg", role: "group", "aria-label": "Status" }, statusesFor(it).map(([v, name]) =>
       h("button", { "aria-pressed": (it.status || "open") === v ? "true" : "false", disabled: ro, onclick: () => { if ((it.status || "open") !== v) edit("status", { status: v }); } }, name))),
     h("div", { class: "actions" },
       firstDoc ? openDocs(it, detail.path + "#" + it.id) : [],

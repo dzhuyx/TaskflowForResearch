@@ -9,6 +9,7 @@ import difflib
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -97,6 +98,41 @@ class ParseTests(unittest.TestCase):
         self.assertTrue(any(w.startswith("wi.3 is waiting") for w in st["warnings"]))     # its needs are done
         self.assertEqual(tf.build_state(LISTED, Path("x.taskpaper"))["warnings"], [])     # blocked waiting items are fine
 
+    def test_unblocked_claude_task_open_or_waiting_is_warned(self):
+        # an unblocked Claude task is in progress or queued; open or waiting, it is stalled or lacks a prerequisite
+        done = LISTED.replace("@id(wi.1)", "@id(wi.1) @done(2026-10-08)").replace("@id(wi.2)", "@id(wi.2) @done(2026-10-08)") \
+                     .replace("@status(waiting) @id(wi.3)", "@id(wi.3) @done(2026-10-08)")
+        def warns(text, about="wi.4"):
+            return [w for w in tf.build_state(text, Path("x.taskpaper"))["warnings"] if w.startswith(about + " ")]
+        self.assertEqual(len(warns(done)), 1)
+        self.assertTrue(warns(done)[0].startswith("wi.4 is Claude's, unblocked and waiting"))   # not also the general waiting warning
+        self.assertIn("--status wi.4 queued", warns(done)[0])
+        self.assertTrue(warns(done.replace("@status(waiting) @id(wi.4)", "@status(open) @id(wi.4)"))[0].startswith("wi.4 is Claude's, unblocked and open"))
+        self.assertTrue(warns(done.replace("@status(waiting) @id(wi.4)", "@id(wi.4)"))[0].startswith("wi.4 is Claude's, unblocked and open"))   # no @status: open
+        for fine in ("queued", "inprogress"):
+            self.assertEqual(warns(done.replace("@status(waiting) @id(wi.4)", f"@status({fine}) @id(wi.4)")), [])
+        self.assertEqual(warns(LISTED), [])                                                    # blocked: fine
+        handoff = done.replace("@type(action) @owner(claude) @status(waiting) @id(wi.4)", "@type(session) @owner(claude) @status(open) @id(wi.4)") \
+                      .replace("@id(wi.4) @needs(wi.3)\n", "@id(wi.4) @needs(wi.3)\n\t\tPrompt: go on with the next step.\n")
+        self.assertEqual(warns(handoff), [])                                                   # a hand-off is the user's to start
+        mine = done.replace("@owner(claude) @status(waiting) @id(wi.4)", "@owner(me) @status(waiting) @id(wi.4)")
+        self.assertTrue(warns(mine)[0].startswith("wi.4 is waiting"))                          # anyone else's: the general warning
+
+    def test_repeated_tag_done_status_and_handoff_without_prompt_are_warned(self):
+        def warns(text):
+            return tf.build_state(text, Path("x.taskpaper"))["warnings"]
+        twice = LISTED.replace("\t- Act @type(action)", "\t- Add @status(queued) for Claude @type(action)")   # a tag named in a title
+        self.assertTrue(any(w.startswith("wi.4: its line has @status more than once") for w in warns(twice)))
+        stale = LISTED.replace("@id(wi.5) @done(2026-10-07)", "@status(inprogress) @id(wi.5) @done(2026-10-07)")
+        self.assertIn("wi.5 is done but still carries @status(inprogress); remove its @status tag.", warns(stale))
+        handoff = LISTED.replace("@type(action) @owner(claude) @status(waiting) @id(wi.4) @needs(wi.3)",
+                                 "@type(session) @owner(me) @status(open) @id(wi.4) @needs(wi.3)")
+        self.assertTrue(any(w.startswith("wi.4 is a hand-off with no Prompt line") for w in warns(handoff)))
+        prompted = handoff.replace("@id(wi.4) @needs(wi.3)\n", "@id(wi.4) @needs(wi.3)\n\t\tPrompt: apply my comments.\n")
+        self.assertEqual(warns(prompted), [])
+        self.assertEqual(warns(prompted.replace("@status(open) @id(wi.4) @needs(wi.3)", "@id(wi.4) @needs(wi.3) @done(2026-10-09)")
+                               .replace("\t\tPrompt: apply my comments.\n", "")), [])          # a done hand-off: no warning
+
     def test_unknown_need_and_duplicate_id_are_warned(self):
         bad = SAMPLE.replace("@needs(wi.3)", "@needs(wi.99)").replace("@id(wi.5)", "@id(wi.4)")
         st = tf.build_state(bad, Path("x.taskpaper"))
@@ -148,6 +184,30 @@ class EditTests(unittest.TestCase):
         self.assertIn("@started(2026-10-11 09:30)", line_of(done, "wi.4"))                     # kept with @done
         self.assertNotIn("@started", line_of(go(done, "reopen"), "wi.4"))
         self.assertRegex(line_of(self.edit(SAMPLE, "wi.4", "status", {"status": "inprogress"}), "wi.4"), r"@started\(\d{4}-\d\d-\d\d \d\d:\d\d\)")
+
+    def test_queued_status(self):
+        new = tf.apply_edit(SAMPLE, "wi.4", line_of(SAMPLE, "wi.4"), "status", {"status": "queued"}, TODAY, "2026-10-15 09:30")
+        self.assertIn("@status(queued)", line_of(new, "wi.4"))
+        self.assertNotIn("@started", line_of(new, "wi.4"))                     # queued has not started
+        d = Path(tempfile.mkdtemp()).resolve()
+        saved = tf.BACKUP_ROOT
+        tf.BACKUP_ROOT = d / "backups"
+        try:
+            t = d / "t.taskpaper"
+            t.write_text(SAMPLE, encoding="utf-8")
+            self.assertIn("added @sessionid", tf.set_item(t, "wi.4", "status", status="queued", session=SID_A))   # --status queued
+            line = line_of(t.read_text(encoding="utf-8"), "wi.4")
+            self.assertIn("@status(queued)", line)
+            self.assertIn(f"@sessionid({SID_A})", line)
+            self.assertNotIn("@started", line)
+            tf.set_item(t, "wi.4", "status", status="inprogress", session=SID_A)  # its session starts it
+            line = line_of(t.read_text(encoding="utf-8"), "wi.4")
+            self.assertIn("@status(inprogress)", line)
+            self.assertIn("@started(", line)
+            self.assertEqual(line.count(SID_A), 1)
+        finally:
+            tf.BACKUP_ROOT = saved
+            shutil.rmtree(d)
 
     def test_checklist(self):
         text = SAMPLE.replace("\t\tCheck the proof.\n", "\t\tCheck the proof.\n\t\t- Read section 2\n\t\t- Check Lemma 1 @done(2026-10-10 09:00)\n\t\t\t- Its constants\n\t\tA note after the steps.\n")
@@ -285,7 +345,7 @@ class LinkDocTests(unittest.TestCase):
         self.hook = lambda u: "hook://file/H" + str(len(u)) + "?n=" + urllib.parse.quote(u.rsplit("/", 1)[1])
         self.text = ("Reviews:\n\t- Review the report @type(review) @owner(me) @id(r.1)\n"
                      f"\t\t{self.url('results')}\n\t\t{self.hook(self.url('results'))}\n\t\tQuestions: §2.\n"
-                     f"\t\t{self.url('report_20261011_v1.md')}\n\t- Other @type(work) @owner(claude) @id(r.2)\n")
+                     f"\t\t{self.url('report_20261011_v1.md')}\n\t- Other @type(work) @owner(claude) @status(queued) @id(r.2)\n")
 
     def tearDown(self):
         shutil.rmtree(self.dir)
@@ -658,6 +718,19 @@ class HubTests(unittest.TestCase):
         self.assertEqual((by["ot.1"]["unblocks"], by["wi.1"]["unblocks"]), (2, 2))   # through the chain
         self.assertEqual(by["wi.1"]["url"], tf.app_url(self.a) + "?item=wi.1")
         self.assertTrue(by["wi.1"]["url"].startswith("taskflow:///") and "a%20project" in by["wi.1"]["url"])
+
+    def test_queued_claude_tasks_are_listed_with_running_ones(self):
+        self.b.write_text(HUB_OTHER.replace("Queued for Claude @type(work) @owner(claude) @id(ot.9)",
+                                            f"Queued for Claude @type(work) @owner(claude) @status(queued) @id(ot.9) @sessionid({SID_A})"), encoding="utf-8")
+        tf.hub_add(self.b)
+        st = tf.hub_state()
+        b = st["projects"][0]
+        self.assertEqual((b["claude_running"], b["claude_queued"]), (2, 1))
+        self.assertEqual(self.ids(st["groups"]["claude"]), [("Other effort", "ot.6"), ("Other effort", "ot.8"), ("Other effort", "ot.9")])   # running, then queued
+        q = next(t for t in st["groups"]["claude"] if t["id"] == "ot.9")
+        self.assertEqual((q["status"], q["activity"]["sessions"]), ("queued", 1))   # its session's activity, as for a running task
+        self.assertFalse(any(w.startswith("ot.9 ") for w in b["warnings"]))
+        self.assertEqual(tf.hub_item(str(self.b), "ot.9")["activity"]["sessions"], 1)
 
     def test_archived_and_missing_trackers(self):
         tf.hub_add(self.a)
@@ -1330,6 +1403,113 @@ class StatusCommandTests(unittest.TestCase):
                 with contextlib.redirect_stderr(io.StringIO()):
                     self.run_cli(*bad)
         self.assertEqual(self.t.read_text(encoding="utf-8"), before)
+
+    def test_step_adds_ticks_and_unticks_with_refusals(self):
+        msg = self.run_cli("--step", "wi.4", "Run the first scenario")
+        self.assertEqual(msg, 'wi.4: added the step "Run the first scenario" in t.taskpaper.')
+        self.run_cli("--step", "wi.4", "Write the report")
+        self.assertEqual([(c["text"], c["done"]) for c in self.item("wi.4")["checklist"]],
+                         [("Run the first scenario", False), ("Write the report", False)])
+        self.assertIn("already has the step", self.run_cli("--step", "wi.4", "Write  the report"))      # spaces collapse
+        self.assertEqual(self.run_cli("--step", "wi.4", "Run the first scenario", "--done"),
+                         'wi.4: ticked the step "Run the first scenario" in t.taskpaper.')
+        c = self.item("wi.4")["checklist"][0]
+        self.assertTrue(c["done"] and re.search(r"@done\(\d{4}-\d\d-\d\d \d\d:\d\d\)", c["raw"]))   # with the time, as the board writes
+        self.assertIn("already ticked", self.run_cli("--step", "wi.4", "Run the first scenario", "--done"))
+        self.run_cli("--step", "wi.4", "Write the report", "--done", "--at", "2026-10-14 16:05")       # done earlier: its time
+        self.assertIn("@done(2026-10-14 16:05)", self.item("wi.4")["checklist"][1]["raw"])
+        self.run_cli("--step", "wi.4", "Write the report", "--undo")
+        self.run_cli("--step", "wi.4", "Run the first scenario", "--undo")
+        self.assertFalse(self.item("wi.4")["checklist"][0]["done"])
+        self.assertEqual(len(list((self.dir / "backups" / "t").glob("*.taskpaper"))), 6)      # one per write
+        before = self.t.read_text(encoding="utf-8")
+        for bad in (["--step", "wi.4", "Not a step", "--done"],          # tick only a step it has, named exactly
+                    ["--step", "wi.4", "Ends with a colon:"],               # TaskPaper would read a project
+                    ["--step", "wi.4", "Mentions @done in the text"],      # TaskPaper would read a tag
+                    ["--step", "wi.4", "  "],
+                    ["--step", "wi.99", "Anything"],
+                    ["--step", "wi.4", "Write the report", "--done", "--undo"],
+                    ["--step", "wi.4", "Write the report", "--note", "a note"],
+                    ["--step", "wi.4", "Write the report", "--done", "--at", "yesterday"],
+                    ["--step", "wi.4", "Write the report", "--done", "--at", "2999-01-01 10:00"],
+                    ["--step", "wi.4", "Write the report", "--at", "2026-10-14 16:05"],      # --at only with --done
+                    ["--done"]):
+            with self.assertRaises(SystemExit, msg=bad):
+                with contextlib.redirect_stderr(io.StringIO()):
+                    self.run_cli(*bad)
+        self.assertEqual(self.t.read_text(encoding="utf-8"), before)
+
+
+class ConventionsTests(unittest.TestCase):
+    """Bringing an existing tracker up to the current conventions: its header from the template, and the audit."""
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp()).resolve()
+        self._saved = tf.BACKUP_ROOT, tf.LAUNCHER_DIR, tf.HUB_LIST
+        tf.BACKUP_ROOT, tf.LAUNCHER_DIR, tf.HUB_LIST = self.dir / "backups", self.dir / "launchers", self.dir / "trackers.json"
+        self.t, _, _ = tf.init_tracker(self.dir / "c_tracker.taskpaper", "C effort", "c", get_hook=lambda u: "hook://file/X?n=x")
+        self.fresh = self.t.read_text(encoding="utf-8")
+
+    def tearDown(self):
+        tf.BACKUP_ROOT, tf.LAUNCHER_DIR, tf.HUB_LIST = self._saved
+        shutil.rmtree(self.dir)
+
+    def add(self, items):
+        self.t.write_text(self.fresh.replace("Work packages:\n", "Work packages:\n" + items), encoding="utf-8")
+
+    def out(self, fn, *a):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = fn(*a)
+        return rc, buf.getvalue()
+
+    def test_header_drift_is_noted_and_refreshed_from_the_template(self):
+        self.add("\t- Package @type(work) @owner(claude) @status(queued) @id(c.1) @added(2026-10-15 10:00)\n")
+        self.assertEqual(tf.header_drift(self.t.read_text(encoding="utf-8")), "")              # a new tracker matches
+        old = self.t.read_text(encoding="utf-8")
+        stale = old.replace("@status(open), @status(queued), @status(inprogress) or @status(waiting)", "@status(open) or @status(waiting)") \
+                   .replace("\t@done\n", "\t@done\n\t@priority = high\n")                     # an old line, and one of this effort's own
+        self.t.write_text(stale, encoding="utf-8")
+        rc, printed = self.out(tf.check, self.t)
+        self.assertEqual(rc, 0)                                                                  # a note, not a warning
+        self.assertIn("header: Conventions, Saved searches differ from the current template: 2 line(s) only here, 1 only in the template", printed)
+        msg = tf.refresh_header(self.t)
+        self.assertIn("Replaced the header sections of c_tracker.taskpaper from the template (id prefix c).", msg)
+        self.assertIn("  @priority = high", msg)                                                 # listed, to put back by hand
+        self.assertEqual(self.t.read_text(encoding="utf-8"), old)                                # items and title block untouched
+        self.assertEqual(len(list((self.dir / "backups" / "c_tracker").glob("*.taskpaper"))), 1)
+        self.assertIn("already matches", tf.refresh_header(self.t))
+        self.t.write_text(self.fresh, encoding="utf-8")                                         # no ids yet: the prefix is asked for
+        with self.assertRaises(SystemExit):
+            tf.refresh_header(self.t)
+        self.assertIn("already matches", tf.refresh_header(self.t, "c"))
+        self.t.write_text(self.fresh.replace("Saved searches", "Searches"), encoding="utf-8")   # a section it cannot find: refused
+        with self.assertRaises(SystemExit):
+            tf.refresh_header(self.t, "c")
+
+    def test_audit_lists_each_open_item_with_what_to_confirm(self):
+        doc = self.dir / "plan_v1.md"
+        doc.write_text("x", encoding="utf-8")
+        self.add(f"\t- Review plan, version 1 @type(review) @owner(me) @status(open) @id(c.1) @added(2026-10-15 10:00)\n"
+                 f"\t\t{tf.file_url(doc)}\n\t\tQuestions: section 6.\n\t\t- plan_v1.md\n"
+                 f"\t- Submission package @type(work) @owner(me) @status(open) @id(c.2) @needs(c.1)\n"
+                 f"\t\tSteps: cover letter; forms; upload.\n"
+                 f"\t- Finished @type(work) @owner(claude) @id(c.3) @done(2026-10-14 09:00)\n")
+        rc, printed = self.out(tf.audit, self.t)
+        self.assertEqual(rc, 0)
+        self.assertIn("Header: matches the current template.", printed)
+        self.assertIn("Open items: 2.", printed)
+        self.assertIn("c.1  review, open, ready: Review plan, version 1\n  Open opens: plan_v1.md, the first file to review not yet ticked", printed)
+        self.assertIn("    [ ] plan_v1.md", printed)
+        self.assertIn("work package, open, blocked by c.1: Submission package\n  Open opens: nothing (no document linked)\n  checklist: none", printed)
+        self.assertIn("  note: Steps: cover letter; forms; upload.", printed)                     # for the session to move into the checklist
+        self.assertIn("  missing: @added", printed)
+        self.assertIn("confirm: when it has more than one step, the steps are its checklist", printed)
+        self.assertNotIn("c.3", printed)                                                         # done items are history
+        before = self.t.read_text(encoding="utf-8")
+        with self.assertRaises(SystemExit) as cm:                                                # the command reads only
+            with contextlib.redirect_stdout(io.StringIO()):
+                tf.main([str(self.t), "--audit"])
+        self.assertEqual((cm.exception.code, self.t.read_text(encoding="utf-8")), (0, before))
 
 
 PROGRESS = """P:

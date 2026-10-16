@@ -9,6 +9,9 @@ check("1 no @sessionid is flagged", JSON.stringify(note("al.7")) === JSON.string
 check("2 a quiet session is flagged", JSON.stringify(note("de.1")) === JSON.stringify(["No session activity since 2 h ago: still running?", true]), note("de.1"));
 check("3 a registered job is shown, not flagged", JSON.stringify(note("de.2")) === JSON.stringify(["Registered slurm job, started 2026-10-09 08:00", false]), note("de.2"));
 check("4 an active session is shown, not flagged", JSON.stringify(note("de.3")) === JSON.stringify(["Session active 5 min ago", false]), note("de.3"));
+const q = row("de.4"), qn = q && q.querySelector(".note");
+check("4b a queued task is listed with the running ones, marked queued, with its session's activity", !!q && qn.querySelector(".tiny").textContent === "queued" && qn.textContent.includes("Session active 5 min ago") && !q.classList.contains("flag"), q && qn.textContent);
+check("4c its project counts it as queued", document.getElementById("projects").textContent.includes("1 queued for Claude"), document.getElementById("projects").textContent.slice(0, 300));
 row("de.1").click();
 await until(() => det().querySelector("h2") && det().querySelector("h2").textContent === "Quiet run", 3000);
 const run = det().querySelector(".runbox"), look = run && run.querySelector("dd.look");

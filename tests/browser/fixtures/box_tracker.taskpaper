@@ -3,3 +3,4 @@ Box test:
 	- Running one @type(work) @owner(claude) @status(inprogress) @id(bx.2)
 	- Finished one @type(work) @owner(claude) @id(bx.3) @done(2026-10-01)
 	- No id here @type(work) @owner(me) @status(inprogress)
+	- Queued one @type(work) @owner(claude) @status(queued) @id(bx.5)

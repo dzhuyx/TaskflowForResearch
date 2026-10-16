@@ -41,7 +41,7 @@ Steps 3 and 4 on the board: open a review (its chain stays bright), tick a step 
 |---|---|
 | `taskflow.py` | The command line and the local web servers (Python 3 standard library only). |
 | `static/index.html` | The board: one tracker as a dependency graph (Cytoscape.js with dagre). |
-| `static/hub.html` | The hub: every tracker on one page, your unblocked tasks across them, what Claude is running, and a Progress view. |
+| `static/hub.html` | The hub: every tracker on one page, your unblocked tasks across them, what Claude is running or has queued, and a Progress view. |
 | `progress.py` | The Progress view's Gantt chart and activity calendars. |
 | `macapp/` | An optional macOS app: one window per tracker, the hub on every desktop, `taskflow://` links. |
 | `templates/tracker_template.taskpaper` | The starting point for a new tracker. |
@@ -116,7 +116,7 @@ An excerpt, for illustration: `<session id>` stands for a real one, and ab.3 is 
 - Indented `- ` lines under a task are its checklist, ticked with `@done`.
 - A task's first linked document is its main one: the **Open** button opens it, and **All N** beside the button lists the others. `taskflow.py TRACKER --link ID PATH` puts a document first (with `--also`, after the others), so you never reorder links by hand. Only files closely related to the main document follow it (earlier versions, an audio summary, its reviews, the results behind it); a separate document gets its own review.
 - A review's checklist lists the files you must read: a step named for a linked file is a file to review, which you tick when you have read it. Then **Open** opens the first one not yet ticked, and **All N** lists just those, so earlier versions and results stay out of the way. `--link ID PATH --to-review` links a file and adds its step.
-- `@status(inprogress)`, `@done(…)`, `@priority(high)`, and the project's `@harddeadline` and `@softdeadline` on the first line, do what their names say. `skills/taskflow-tracker/SKILL.md` has the full rules.
+- `@status(inprogress)`, `@status(queued)` (a Claude task its session starts next), `@done(…)`, `@priority(high)`, and the project's `@harddeadline` and `@softdeadline` on the first line, do what their names say. To bring an older tracker up to the current conventions, `taskflow.py TRACKER --refresh-header` updates its header from the template, and `--audit` lists what to check on each open item. `skills/taskflow-tracker/SKILL.md` has the full rules.
 
 ## The board
 

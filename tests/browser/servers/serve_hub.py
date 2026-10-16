@@ -36,7 +36,8 @@ if len(sys.argv) > 3 and sys.argv[3] == "activity":
         "Delta:\n"
         f"\t- Quiet run @type(work) @owner(claude) @status(inprogress) @id(de.1) @sessionid({q})\n"
         f"\t- Cluster run @type(work) @owner(claude) @status(inprogress) @id(de.2) @sessionid({j})\n"
-        f"\t- Busy run @type(work) @owner(claude) @status(inprogress) @id(de.3) @sessionid({a})\n", encoding="utf-8")
+        f"\t- Busy run @type(work) @owner(claude) @status(inprogress) @id(de.3) @sessionid({a})\n"
+        f"\t- Next run @type(work) @owner(claude) @status(queued) @id(de.4) @sessionid({a})\n", encoding="utf-8")
     tf.hub_add(t / "delta_tracker.taskpaper", emoji="")
     (here / "projects" / "-Users-x").mkdir(parents=True, exist_ok=True)
     now = time.time()

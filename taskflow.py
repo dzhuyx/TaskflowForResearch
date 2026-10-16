@@ -33,8 +33,8 @@ Jobs (💻 items run by a Claude session) are marked done automatically when the
     python3 taskflow.py --jobs                  (lists registered jobs)
 
 Sessions mark their own tasks with the board's edit (conflict check, backup), instead of editing the line by hand:
-    python3 taskflow.py TRACKER --status ID inprogress|waiting|open [--note "..."]
-        (inprogress also adds the running session's @sessionid)
+    python3 taskflow.py TRACKER --status ID inprogress|queued|waiting|open [--note "..."]
+        (inprogress and queued also add the running session's @sessionid)
     python3 taskflow.py TRACKER --tick ID [--note "one-line outcome"]
 
 The hub shows every tracker (one per project) and all of the user's active tasks on one page:
@@ -568,6 +568,16 @@ def build_state(text, path, with_sessions=True):
             by_id[it["id"]] = it
         if any(m.group(2) is None and it["raw"][m.end():m.end() + 1] == "(" for m in TAG_RE.finditer(it["raw"])):
             warnings.append(f"Line {it['line'] + 1} ({it['id']}): a tag value contains parentheses, which TaskPaper cannot parse; use [ ] instead.")
+        names = [m.group(1) for m in TAG_RE.finditer(it["raw"])]
+        twice = [n for n in dict.fromkeys(names) if names.count(n) > 1]
+        if twice:   # e.g. a title that names a tag with its @: edits change the first one, which may be the title's
+            warnings.append(f"{it['id']}: its line has {', '.join('@' + n for n in twice)} more than once; TaskPaper reads every @word on the "
+                            "line as a tag, and taskflow.py edits the first, so write a tag's name in a title without its @.")
+        if it["done"] and it["status"]:
+            warnings.append(f"{it['id']} is done but still carries @status({it['status']}); remove its @status tag.")
+        if it["type"] == "session" and not it["done"] and not any(re.match(r"Prompt:\s*\S", n) for n in it["notes"]):
+            warnings.append(f"{it['id']} is a hand-off with no Prompt line: add a note line starting \"Prompt:\" with the instruction "
+                            "for you to paste into the session.")
         for note in it["notes"]:
             if TAG_RE.sub("", note).strip().endswith(":"):
                 warnings.append(f"{it['id']}: a note line ends with ':' ({note[:50]}), which TaskPaper reads as a project; end it differently.")
@@ -603,7 +613,13 @@ def build_state(text, path, with_sessions=True):
         if it["ready"] and it["type"] == "review" and not it["links"]:   # a review ready for the user links its document
             warnings.append(f"{it['id']} is a review ready for you with no document linked; link the document "
                             "(a file:// line), or gate the review on the task that writes it.")
-        if it["ready"] and it["status"] == "waiting":   # a blocked task must show what blocks it
+        if it["ready"] and hub_group(it) == "claude" and (it["status"] or "open") in ("open", "waiting"):
+            # an unblocked Claude task is being worked on or lined up; otherwise it lacks a prerequisite
+            warnings.append(f"{it['id']} is Claude's, unblocked and {it['status'] or 'open'}: if its session is working on it, set it in progress "
+                            f"(--status {it['id']} inprogress); if its session will start it next, queue it (--status {it['id']} queued); "
+                            "if it waits for other work, give it @needs on that work's item (for the user's answer, the hand-off that "
+                            "follows the user's review; for another session's work, an item under that session).")
+        elif it["ready"] and it["status"] == "waiting":   # a blocked task must show what blocks it
             warnings.append(f"{it['id']} is waiting, but nothing it @needs is open, so the board and the hub show it as ready; "
                             "give it @needs on the item it waits for (for the user's answer, the hand-off back to the session "
                             "that follows the review of the document holding the user's question; or the task), or set its status to open or inprogress.")
@@ -668,11 +684,11 @@ def board_state(text, path):
 
 
 def add_activity(st, path):
-    """For each of Claude's tasks in progress: its registered job, or when its session last wrote, as the hub has it;
-    the board shows how long it has run and flags one gone quiet."""
+    """For each of Claude's tasks in progress or queued: its registered job, or when its session last wrote, as the hub has
+    it; the board shows how long it has run and flags one gone quiet."""
     jobs, now = registered_jobs(), time.time()
     for it in st["items"]:
-        if hub_group(it) == "claude" and it["status"] == "inprogress" and not it["done"]:
+        if claude_active(it):
             it["activity"] = activity(it, Path(path).resolve(), jobs, now)
     return st
 
@@ -947,6 +963,213 @@ def check(path):
         print("  no @added date, so the hub's Gantt chart cannot draw them: " + ", ".join(undated))
     if st["deadlines"]:
         print("  deadlines: " + "; ".join(f"{k} {d['date']}" + (f", {d['what']}" if d["what"] else "") for k, d in st["deadlines"].items()))
+    drift = header_drift(text)
+    if drift:                        # a note, not a warning: the header is the conventions as they were when it was written
+        print(f"  header: {drift} (--audit lists them; --refresh-header replaces them from the template)")
+    for w in st["warnings"]:
+        print("  WARNING: " + w)
+    return 1 if st["warnings"] else 0
+
+
+# --------------------------------------------------------------------------
+# Bringing a tracker up to the current conventions: its header from the template, and an audit of every open item
+# --------------------------------------------------------------------------
+
+HEADER_SECTIONS = ("What belongs here", "Conventions", "How to maintain", "Saved searches")   # the header's sections from the template
+
+
+def header_sections(lines):
+    """{heading: (first, last)}: the line range of each of the header's sections that come from the template, from its
+    heading line to its last non-blank line before the next top-level line."""
+    out, cur = {}, None
+    for idx, raw in enumerate(lines):
+        if raw.strip() and not raw.startswith("\t"):
+            cur = next((h for h in HEADER_SECTIONS if raw.startswith(h)), None)
+            if cur and cur not in out:
+                out[cur] = [idx, idx]
+            else:
+                cur = None
+        elif cur and raw.strip():
+            out[cur][1] = idx
+    return {h: tuple(r) for h, r in out.items()}
+
+
+def tracker_prefix(text):
+    """The id prefix most of the tracker's items use (wi for wi.12), or None when no item has an id."""
+    counts = {}
+    for it in parse(text):
+        if it["has_id"] and "." in it["id"]:
+            p = it["id"].rsplit(".", 1)[0]
+            counts[p] = counts.get(p, 0) + 1
+    return max(counts, key=counts.get) if counts else None
+
+
+def template_header(prefix):
+    """The template's lines, filled in as --init fills them for a tracker with this id prefix."""
+    text = TEMPLATE.read_text(encoding="utf-8")
+    for k, v in {"{PREFIX}": prefix, "{TASKFLOW_PY}": str(APP_DIR / "taskflow.py"), "{README_URL}": file_url(APP_DIR / "README.md")}.items():
+        text = text.replace(k, v)
+    return text.split("\n")
+
+
+def header_differences(text, prefix=None):
+    """[(heading, lines only in the tracker, lines only in the template)] for each header section that differs from the
+    current template; a section the tracker lacks has every template line as missing. None when the prefix is unknown or
+    the tracker has none of these sections."""
+    prefix = prefix or tracker_prefix(text)
+    if not prefix:
+        return None
+    lines, tpl = text.split("\n"), template_header(prefix)
+    have, want = header_sections(lines), header_sections(tpl)
+    if not have:                     # a tracker not made from the template: nothing to compare
+        return None
+    out = []
+    for h in (h for h in HEADER_SECTIONS if h in want):
+        new = [l for l in tpl[want[h][0]:want[h][1] + 1] if l.strip()]
+        old = [l for l in lines[have[h][0]:have[h][1] + 1] if l.strip()] if h in have else []
+        only_old, only_new = [l for l in old if l not in new], [l for l in new if l not in old]
+        if only_old or only_new:
+            out.append((h, only_old, only_new))
+    return out
+
+
+def header_drift(text):
+    """A short phrase saying how the header differs from the current template, or "" when it matches (or has no ids yet)."""
+    diff = header_differences(text)
+    if not diff:
+        return ""
+    n_old, n_new = sum(len(d[1]) for d in diff), sum(len(d[2]) for d in diff)
+    return (f"{', '.join(d[0] for d in diff)} differ from the current template: {n_old} line(s) only here, "
+            f"{n_new} only in the template")
+
+
+def refresh_header(tracker, prefix=None):
+    """From the command line: replace the header's sections that come from the template (What belongs here, Conventions,
+    How to maintain, Saved searches) with the current template's, filled in for this tracker's id prefix, with the board's
+    re-read check and a backup. The title line and the lines under it, and every item, stay as they are. Returns what was
+    done, listing the lines removed that the template lacks, so that any that belong to this effort alone can be put back."""
+    tracker = Path(tracker).resolve()
+    for _ in range(3):
+        old = tracker.read_text(encoding="utf-8")
+        p = prefix or tracker_prefix(old)
+        if not p:
+            raise SystemExit(f"{tracker.name} has no item ids to tell its prefix from; give it with --prefix.")
+        lines, tpl = old.split("\n"), template_header(p)
+        have, want = header_sections(lines), header_sections(tpl)
+        if set(want) != set(HEADER_SECTIONS):
+            raise SystemExit(f"{TEMPLATE} does not have the header sections this command replaces ({', '.join(HEADER_SECTIONS)}); "
+                             "update HEADER_SECTIONS in taskflow.py.")
+        missing = [h for h in HEADER_SECTIONS if h not in have]
+        if missing:
+            raise SystemExit(f"{tracker.name} has no {', '.join(repr(h) for h in missing)} section; add it by hand from "
+                             f"{TEMPLATE}, then run this again.")
+        removed = []
+        for h in sorted(HEADER_SECTIONS, key=lambda h: -have[h][0]):     # bottom up, so earlier ranges stay put
+            a, b = have[h]
+            new_sec = tpl[want[h][0]:want[h][1] + 1]
+            removed = [l.strip() for l in lines[a:b + 1] if l.strip() and l not in new_sec] + removed
+            lines[a:b + 1] = new_sec
+        new = "\n".join(lines)
+        left = re.findall(r"\{[A-Z_]+\}", "\n".join(lines[min(r[0] for r in have.values()):]))
+        if left:
+            raise SystemExit(f"The template has placeholders this command does not fill ({', '.join(sorted(set(left)))}); nothing written.")
+        if new == old:
+            return f"The header of {tracker.name} already matches the template; nothing changed."
+        if tracker.read_text(encoding="utf-8") == old:
+            write_with_backup(tracker, old, new)
+            said = f"Replaced the header sections of {tracker.name} from the template (id prefix {p})."
+            if removed:
+                said += ("\nLines removed that the template lacks; put back, at the end of its section, any that belongs to this "
+                         "effort alone:\n" + "\n".join("  " + l for l in removed))
+            return said
+    raise SystemExit(f"{tracker.name} kept changing; nothing written. Run the command again.")
+
+
+def item_kind(it):
+    """What an item is, in the words the skill uses for its rules on what its Open button opens and what its checklist holds."""
+    if it["type"] == "review":
+        return "review"
+    if it["type"] == "session":
+        return "hand-off"
+    if it["type"] == "work" and it["owner"] in ("me", "claude"):
+        return ("The user's" if it["owner"] == "me" else "Claude's") + " work package"
+    return f"@type({it['type'] or 'none'}) @owner({it['owner'] or 'none'})"
+
+
+AUDIT_CONFIRM = {   # what to confirm for each kind of item, from the skill's "What each kind of item opens and lists"
+    "review": "its title names the document and version it links first; its checklist lists every file the user must read, in "
+              "reading order, and no file the user may only consult; its note says where the questions are; if later work has "
+              "overtaken it, ask the user to tick it.",
+    "hand-off": "its title says which session it goes back to and why; @needs names the review(s) it follows, or nothing for a "
+                "go-ahead; its Prompt line says what to do now; it links no document.",
+    "The user's work package": "when it has more than one step, the steps are its checklist, with the ones already done ticked, "
+                            "and not a list in its notes or in another file; the document the user works from or in, if there is "
+                            "one, is linked first; @needs names what must come first.",
+    "Claude's work package": "its status follows the rule for Claude's tasks (unblocked: in progress or queued; otherwise @needs "
+                             "on what it waits for); the document it produces or works from, once it exists, is linked "
+                             "first; steps, if it lists them, are ticked as they finish; if the user must see its results, a "
+                             "review of them follows it, and the work that uses them waits on the hand-off after that review.",
+}
+
+
+def audit(path):
+    """Print, for bringing a tracker up to the current conventions, how its header differs from the template and, for each
+    open item, what it is, what its Open button opens, its checklist, its notes and what to confirm for its kind; then
+    --check's warnings. Reads only. Returns 1 if --check has warnings."""
+    text = Path(path).read_text(encoding="utf-8")
+    st = build_state(text, Path(path), with_sessions=False)
+    print(f"{Path(path).name}: audit against the conventions of the taskflow-tracker skill (reads only)")
+    diff = header_differences(text)
+    if diff is None:
+        print("Header: not compared with the template (no item ids yet to tell its prefix, or no sections from the template).")
+    elif not diff:
+        print("Header: matches the current template.")
+    else:
+        print("Header: " + header_drift(text) + ". --refresh-header replaces these sections from the template and lists the "
+              "lines only here, to put back any that belongs to this effort alone.")
+        for h, only_old, only_new in diff:
+            for l in only_old:
+                print(f"  {h}, only here: {l.strip()}")
+            for l in only_new:
+                print(f"  {h}, only in the template: {l.strip()}")
+    open_items = [it for it in st["items"] if not it["done"]]
+    by_id = {it["id"]: it for it in st["items"]}
+    print(f"Open items: {len(open_items)}. Walk each through the list in the skill's procedure \"Bring a tracker up to the "
+          "current conventions\"; a clean --check does not cover these points. For every item, read its notes in full and open its "
+          "main document when it is a document; confirm that @needs lists everything it waits for and nothing it no longer "
+          "waits for, and that its notes are current, with no step still listed as to do that is done; then what its kind asks.")
+    for it in open_items:
+        kind = item_kind(it)
+        state = "ready" if it["ready"] else "blocked by " + ", ".join(it["unmet"])
+        print(f"\n{it['id']}  {kind}, {it['status'] or 'no @status'}, {state}: {it['title']}")
+        review = [c for c in it["checklist"] if c.get("doc") is not None]
+        if review:
+            nxt = next((c for c in review if not c["done"]), None)
+            print("  Open opens: " + (f"{it['docs'][nxt['doc']]['name']}, the first file to review not yet ticked" if nxt
+                                      else "the files to review, all ticked"))
+        else:
+            print("  Open opens: " + (f"{it['docs'][0]['name']} (its main document)" if it["docs"] else "nothing (no document linked)"))
+        if it["checklist"]:
+            print(f"  checklist: {len(it['checklist'])} step(s), {sum(c['done'] for c in it['checklist'])} ticked; "
+                  f"files to review: {len(review)}")
+            for c in it["checklist"]:
+                print(f"    {'  ' * c['depth']}[{'x' if c['done'] else ' '}] {c['text']}")
+        else:
+            print("  checklist: none")
+        for n in it["notes"]:
+            if not re.fullmatch(r"(?:file|hook|https?)://\S+", n):
+                print(f"  note: {n}")
+        missing = ([] if it["tags"].get("added") else ["@added (add it only if you know when the item was added)"]) + \
+                  ([] if it["sessionids"] else ["@sessionid (needed when the item comes from a Claude Code session)"]) + \
+                  (["@started (an item in progress carries the time it started)"] if it["status"] == "inprogress" and not it["started"] else [])
+        if missing:
+            print("  missing: " + "; ".join(missing))
+        need_titles = [f"{n} {by_id[n]['title'][:60]}" for n in it["needs"] if n in by_id]
+        if need_titles:
+            print("  @needs: " + "; ".join(need_titles))
+        print("  confirm: " + AUDIT_CONFIRM.get(kind, "its @type and @owner make it one of the current kinds: a review, a "
+                                                     "hand-off, or the user's or Claude's work package."))
+    print(f"\n--check: {len(st['warnings'])} warning(s)")
     for w in st["warnings"]:
         print("  WARNING: " + w)
     return 1 if st["warnings"] else 0
@@ -1071,7 +1294,7 @@ def set_project_deadlines(path, changes):
 # --------------------------------------------------------------------------
 
 PRIORITY_RANK = {"high": 0, "low": 2}         # the board's Next order; anything else ranks 1
-STATUS_RANK = {"inprogress": 0, "waiting": 2}
+STATUS_RANK = {"inprogress": 0, "queued": 1, "waiting": 2}
 
 
 @contextlib.contextmanager
@@ -1418,7 +1641,7 @@ def tracker_sessions(text):
 
 
 def activity(it, path, jobs, now):
-    """For a Claude task in progress: its registered job, or when its session(s) last wrote to their transcripts."""
+    """For a Claude task in progress or queued: its registered job, or when its session(s) last wrote to their transcripts."""
     job = jobs.get((str(path), it["id"])) if jobs is not None else None
     seen = [(t, sid) for sid in it["sessionids"] for t in [transcript_mtime(sid)] if t is not None]
     last, sid = max(seen) if seen else (None, None)
@@ -1491,12 +1714,18 @@ def hub_group(it):
     return it["owner"] if it["owner"] in ("me", "claude") else "other"
 
 
+def claude_active(it):
+    """One of Claude's own tasks that a session is running (@status(inprogress)) or will start next (@status(queued))."""
+    return not it["done"] and hub_group(it) == "claude" and it["status"] in ("inprogress", "queued")
+
+
 def hub_state():
     """Every listed tracker with its counts, and the tasks of the unarchived ones, grouped by who acts.
 
     The groups are the user's own tasks, hand-offs back to Claude sessions, Claude's own tasks, and any other owner or none
     (hub_group). The user's, the hand-offs and the others list the unblocked tasks (ready on the board: not done, every
-    prerequisite done); Claude's list the tasks it is running: @status(inprogress), not done, blocked or not. Each group is in the board's
+    prerequisite done); Claude's list the tasks it is running or will start next: @status(inprogress) or @status(queued), not
+    done, blocked or not. Each group is in the board's
     Next order, with the urgency of each task's project (its deadlines) after its priority; the board breaks the last ties
     by where the boxes sit, which the hub cannot see, so it uses the project and then the order in the file.
     """
@@ -1523,9 +1752,9 @@ def hub_state():
         st = build_state(text, path, with_sessions=False)
         items = st["items"]
         ready = [it for it in items if it["ready"]]
-        # Claude's own tasks are listed when they are being run: in progress, blocked or not;
-        # the other groups list the unblocked tasks
-        running = [it for it in items if not it["done"] and hub_group(it) == "claude" and it["status"] == "inprogress"]
+        # Claude's own tasks are listed when they are being run or queued to be run next (2026-10-15),
+        # blocked or not; the other groups list the unblocked tasks
+        running = [it for it in items if claude_active(it)]
         urgency, deciding = deadline_urgency(st["deadlines"], today)
         row.update({"deadlines": sorted((dict(d, kind=k, days_left=(dt.date.fromisoformat(d["date"]) - today).days)
                                          for k, d in st["deadlines"].items()), key=lambda d: d["date"]),
@@ -1534,7 +1763,8 @@ def hub_state():
                     "name": project_name(tracker_title(text), path),
                     "changed": dt.datetime.fromtimestamp(changed).isoformat(sep=" ", timespec="minutes"),
                     "ready": {g: sum(hub_group(it) == g for it in ready) for g in HUB_GROUPS},
-                    "claude_running": len(running),
+                    "claude_running": sum(it["status"] == "inprogress" for it in running),
+                    "claude_queued": sum(it["status"] == "queued" for it in running),
                     "blocked": sum(not it["done"] and not it["ready"] for it in items),
                     "done": sum(it["done"] for it in items),
                     "total": len(items),
@@ -1674,8 +1904,7 @@ def hub_item(path, item_id):
     return {"path": path, "file": p.name, "folder": folder_label(p), "project": project_name(tracker_title(text), p),
             "url": app_url(p) + "?item=" + urllib.parse.quote(it["id"], safe=""), "item": it, "related": related,
             "sessions": {sid: st["sessions"][sid] for sid in it["sessionids"] if sid in st["sessions"]},
-            "activity": activity(it, p, registered_jobs(), time.time())
-            if hub_group(it) == "claude" and it["status"] == "inprogress" and not it["done"] else None}
+            "activity": activity(it, p, registered_jobs(), time.time()) if claude_active(it) else None}
 
 
 def hub_version():
@@ -1702,7 +1931,7 @@ def print_hub_list():
             continue
         r = p["ready"]
         print(f"{name}: unblocked: {r['me']} for you, {r['handoff']} hand-off(s)"
-              + (f", {r['other']} other owner or none" if r["other"] else "") + f"; {p['claude_running']} being run by Claude"
+              + (f", {r['other']} other owner or none" if r["other"] else "") + f"; {p['claude_running']} being run by Claude" + (f", {p['claude_queued']} queued" if p["claude_queued"] else "")
               + f"; {p['blocked']} blocked; {p['done']} of {p['total']} done"
               + "".join(f"; {d['kind']} deadline {d['date']} ({days_phrase(d['days_left'])})" for d in p["deadlines"])
               + (f"; {len(p['warnings'])} warning(s)" if p["warnings"] else "") + f"\n    {p['path']}")
@@ -1965,13 +2194,13 @@ def unregister(job):
         reg["jobs"] = [j for j in reg["jobs"] if not (j["tracker"] == job["tracker"] and j["item"] == job["item"])]
 
 
-STATUSES = ("open", "inprogress", "waiting")
+STATUSES = ("open", "queued", "inprogress", "waiting")
 
 
 def set_item(tracker, item, op, status=None, note=None, session=None):
     """From the command line: tick an item done (op "done") or set its status (op "status"), with an optional dated
     note. Uses the board's edit; re-reads and retries if another writer changes the file meanwhile, and keeps a backup.
-    Setting @status(inprogress) adds the running session's id. Returns a line saying what changed."""
+    Setting @status(inprogress) or @status(queued) adds the running session's id. Returns a line saying what changed."""
     tracker = Path(tracker).resolve()
     if op == "status" and status not in STATUSES:
         raise SystemExit(f"--status takes one of {', '.join(STATUSES)}, not {status}")
@@ -1996,7 +2225,7 @@ def set_item(tracker, item, op, status=None, note=None, session=None):
                 new = apply_edit(old, item, it["raw"], "status", {"status": status}, today)
                 said = f"@status({status})"
                 line = next(i for i in parse(new) if i["id"] == item)["raw"]
-                if status == "inprogress" and session and session not in it["sessionids"]:
+                if status in ("inprogress", "queued") and session and session not in it["sessionids"]:
                     new = new.replace(line, set_tag(line, "sessionid", ", ".join(it["sessionids"] + [session])), 1)
                     said += f", added @sessionid {session[:8]}"
                     line = next(i for i in parse(new) if i["id"] == item)["raw"]
@@ -2203,6 +2432,64 @@ def link_item(tracker, item, doc, unlink=False, also=False, review=False):
         if tracker.read_text(encoding="utf-8") == old:
             write_with_backup(tracker, old, new)
             return "\n".join([said + f" ({tracker.name})"] + ["  " + p for p in problems])
+    raise SystemExit(f"{tracker.name} kept changing; nothing written. Run the command again.")
+
+
+def step_item(tracker, item, step, done=None, at=None):
+    """From the command line: add STEP at the end of an item's checklist (done None), or tick (True) or untick (False) the
+    step whose text is STEP, with the board's edits; re-reads and retries as set_item does, with a backup. A session keeps
+    the steps of its own tasks this way; the user ticks the user's on the board or in the hub. AT ("YYYY-MM-DD HH:MM") is when a
+    step being ticked was done, if earlier than now. Returns what was done."""
+    tracker = Path(tracker).resolve()
+    if at is not None:
+        if done is not True:
+            raise SystemExit("--at is used with --step ... --done")
+        try:
+            when = dt.datetime.strptime(at.strip(), "%Y-%m-%d %H:%M")
+        except ValueError:
+            raise SystemExit(f"--at takes a time as YYYY-MM-DD HH:MM, not {at}")
+        if when > dt.datetime.now():
+            raise SystemExit(f"--at {at} is in the future.")
+        at = when.strftime("%Y-%m-%d %H:%M")
+    step = " ".join((step or "").split())
+    while step.startswith("- "):
+        step = step[2:].lstrip()
+    if not step:
+        raise SystemExit("The step is empty.")
+    if done is None and step.endswith(":"):
+        raise SystemExit("A step cannot end with ':', which TaskPaper reads as a project; end it differently.")
+    if done is None and TAG_RE.search(step):
+        raise SystemExit("A step cannot contain @word, which TaskPaper reads as a tag; write the word without its @.")
+    today = dt.date.today().isoformat()
+    for _ in range(3):
+        old = tracker.read_text(encoding="utf-8")
+        it = next((i for i in parse(old) if i["id"] == item and i["has_id"]), None)
+        if it is None:
+            raise SystemExit(f"{item} is not in {tracker.name}")
+        match = [c for c in it["checklist"] if c["text"] == step]
+        try:
+            if done is None:
+                if match:
+                    return f"{item} already has the step \"{step}\"; nothing changed."
+                new = apply_edit(old, item, it["raw"], "step", {"text": step}, today)
+                said = f"added the step \"{step}\""
+            else:
+                if not match:
+                    steps = "; ".join(f'"{c["text"]}"' for c in it["checklist"]) or "none"
+                    raise SystemExit(f"{item} has no step \"{step}\" (its steps: {steps}). Give a step's text exactly, or add it "
+                                     f"first with --step {item} \"<step>\".")
+                if len(match) > 1:
+                    raise SystemExit(f"{item} has the step \"{step}\" more than once; tick it on the board or in TaskPaper.")
+                c = match[0]
+                if c["done"] == done:
+                    return f"The step \"{step}\" of {item} is already {'ticked' if done else 'unticked'}; nothing changed."
+                new = apply_edit(old, item, it["raw"], "check", {"line": c["line"], "expected": c["raw"], "done": done}, today, at or now_stamp())
+                said = ("ticked" if done else "unticked") + f" the step \"{step}\""
+        except (Conflict, EditError) as e:
+            raise SystemExit(str(e))
+        if tracker.read_text(encoding="utf-8") == old:
+            write_with_backup(tracker, old, new)
+            return f"{item}: {said} in {tracker.name}."
     raise SystemExit(f"{tracker.name} kept changing; nothing written. Run the command again.")
 
 
@@ -2475,7 +2762,7 @@ def main(argv=None):
                     help="write a double-click .command for this tracker (default: launchers/), then exit")
     ap.add_argument("--init", action="store_true", help="create a new tracker from the template, plus its launcher")
     ap.add_argument("--title", help="with --init: the tracker's title (its top-level project)")
-    ap.add_argument("--prefix", help="with --init: the id prefix, e.g. pac for ids pac.1, pac.2, ...")
+    ap.add_argument("--prefix", help="with --init (or --refresh-header, for a tracker with no ids yet): the id prefix, e.g. pac for ids pac.1, pac.2, ...")
     ap.add_argument("--purpose", default="", help="with --init: one sentence on the effort")
     ap.add_argument("--record", default="", help="with --init: the effort's main log or plan")
     ap.add_argument("--job-start", metavar="ID", help="register a running job for item ID (with --slurm or --marker)")
@@ -2494,7 +2781,7 @@ def main(argv=None):
     ap.add_argument("--app", action="store_true", help="serve the board for the Taskflow app: take a free port, print "
                     "'TASKFLOW_URL <url>', and exit when standard input closes (the app closes it with the window)")
     ap.add_argument("--status", nargs=2, metavar=("ID", "STATUS"),
-                    help="set item ID to open, inprogress or waiting (inprogress adds the running session's @sessionid)")
+                    help="set item ID to open, queued, inprogress or waiting (inprogress and queued add the running session's @sessionid)")
     ap.add_argument("--tick", metavar="ID", help="tick item ID done")
     ap.add_argument("--note", help="with --tick or --status: a one-line note, added as a dated line under the item")
     ap.add_argument("--link", nargs=2, metavar=("ID", "PATH"),
@@ -2516,6 +2803,15 @@ def main(argv=None):
     ap.add_argument("--deadline", nargs=2, metavar=("hard|soft", "YYYY-MM-DD"),
                     help="set the project's hard (external) or soft (internal) deadline on the tracker's title line; \"\" removes it")
     ap.add_argument("--what", help="with --deadline: what is due, in a few words")
+    ap.add_argument("--step", nargs=2, metavar=("ID", "STEP"),
+                    help="add STEP at the end of item ID's checklist; with --done or --undo, tick or untick the step whose text is STEP")
+    ap.add_argument("--done", action="store_true", help="with --step: tick the step")
+    ap.add_argument("--undo", action="store_true", help="with --step: untick the step")
+    ap.add_argument("--at", metavar="\"YYYY-MM-DD HH:MM\"", help="with --step ... --done: when the step was done, if earlier than now")
+    ap.add_argument("--audit", action="store_true", help="for bringing the tracker up to the current conventions: print how its header "
+                    "differs from the template and, for each open item, what it opens, its checklist, its notes and what to confirm; reads only")
+    ap.add_argument("--refresh-header", action="store_true", help="replace the tracker's header sections (What belongs here, Conventions, "
+                    "How to maintain, Saved searches) from the current template, with a backup, and list the lines removed")
     argv = sys.argv[1:] if argv is None else list(argv)
     command = []
     if "--" in argv:                 # with --job-run: everything after -- is the command
@@ -2594,6 +2890,20 @@ def main(argv=None):
         return
     if a.check:
         sys.exit(check(path))
+    if a.audit:
+        sys.exit(audit(path))
+    if a.refresh_header:
+        print(refresh_header(path, a.prefix))
+        return
+    if (a.done or a.undo or a.at) and not a.step:
+        ap.error("--done, --undo and --at are used with --step")
+    if a.step:
+        if a.done and a.undo:
+            ap.error("use --done or --undo, not both")
+        if a.note:
+            ap.error("--note is used with --tick or --status")
+        print(step_item(path, *a.step, done=True if a.done else False if a.undo else None, at=a.at))
+        return
     if a.status or a.tick:
         if a.status and a.tick:
             ap.error("use --status or --tick, not both")

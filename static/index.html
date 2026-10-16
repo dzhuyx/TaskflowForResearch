@@ -348,6 +348,7 @@ function statusLine(it) {   // the box's last line: what it is waiting for, or w
   if (it.done) return "Done" + (it.tags.done ? " " + fmtDay(it.tags.done.slice(0, 10)) : "");
   const unmet = it.unmet || [], waits = unmet.length ? "waits for " + unmet[0] + (unmet.length > 1 ? " +" + (unmet.length - 1) : "") : "";
   if (it.status === "inprogress") return "In progress" + (waits ? " · " + waits : "");
+  if (it.status === "queued") return "Queued" + (waits ? " · " + waits : "");   // its session starts it next
   if (waits) return "W" + waits.slice(1);
   if (it.status === "waiting") return "Waiting";
   return "Ready · " + (it.type === "session" ? "hand-off" : it.owner === "me" ? "for you" : it.owner === "claude" ? "Claude's" : it.owner || "no owner");
@@ -355,10 +356,11 @@ function statusLine(it) {   // the box's last line: what it is waiting for, or w
 function statusKind(it) {   // picks the status line's colour, as in the mock-up
   if (it.done) return "done";
   if (it.status === "inprogress") return "prog";
+  if (it.status === "queued") return "queued";
   if ((it.unmet || []).length) return "waits";
   return it.status === "waiting" ? "waiting" : "ready";
 }
-const STATUS_INK = { done: "#636366", prog: "#1e40af", waits: "#a12b2b", waiting: "#8a3b00", ready: "#13663b" };
+const STATUS_INK = { done: "#636366", prog: "#1e40af", queued: "#0e6170", waits: "#a12b2b", waiting: "#8a3b00", ready: "#13663b" };
 // Who acts, in the bar down a box's left side: blue for the user's, Anthropic's clay for Claude's own, purple
 // for a hand-off, grey for another owner or none.
 const WHO_COLOR = { me: "#2563eb", claude: "#c96442", handoff: "#a21caf", other: "#8e8e93" };
@@ -1067,6 +1069,7 @@ function renderOverview() {
   const rows = [
     ["Your reviews, open", count((i) => !i.done && i.type === "review" && i.owner === "me")],
     ["Claude jobs running (check results when done)", count((i) => !i.done && i.owner === "claude" && i.status === "inprogress")],
+    ["Claude tasks queued (its session starts each next)", count((i) => !i.done && i.owner === "claude" && i.status === "queued")],
     ["Session hand-offs ready", count((i) => i.ready && i.type === "session")],
     ["Ready to start (all prerequisites done)", count((i) => i.ready)],
     ["Blocked by an unfinished prerequisite", count((i) => !i.done && !i.ready)],
@@ -1227,7 +1230,9 @@ async function copyText(s, done) {
   catch (e) { flash("Could not copy automatically; select the prompt in the notes instead.", true); }
 }
 
-const STATUSES = [["open", "Open"], ["inprogress", "In progress"], ["waiting", "Waiting"]];
+const STATUSES = [["open", "Open"], ["queued", "Queued"], ["inprogress", "In progress"], ["waiting", "Waiting"]];
+// queued (a session starts it next) is for Claude's own tasks; it is offered on another item only while it has it
+const statusesFor = (it) => STATUSES.filter(([v]) => v !== "queued" || (it.type !== "session" && it.owner === "claude") || it.status === "queued");
 function needsChip(id, ro, it) {   // a prerequisite, with × to remove it
   const c = chip(id, "need");
   if (!ro) c.append(h("button", { class: "x", "aria-label": "Remove " + id + " from what " + it.id + " needs", title: "Remove from needs",
@@ -1252,7 +1257,7 @@ function renderItem(it) {
     h("textarea", { id: "t-done", class: "outcome", placeholder: it.done ? "Optional: why it is being reopened (type before unticking)" : "Optional: one-line outcome, saved as a dated note when you tick the box" }),   // under the tick box and the task's name
     h("div", { class: "badges" }, stateBadge,
       it.priority === "high" ? h("span", { class: "badge" }, icon("star", 11, "#3a3a3f"), "High priority") : it.priority ? h("span", { class: "badge" }, it.priority === "low" ? "Low priority" : "Priority " + it.priority) : []),
-    it.done ? [] : h("div", { class: "seg", role: "group", "aria-label": "Status" }, STATUSES.map(([v, name]) =>
+    it.done ? [] : h("div", { class: "seg", role: "group", "aria-label": "Status" }, statusesFor(it).map(([v, name]) =>
       h("button", { "aria-pressed": (it.status || "open") === v ? "true" : "false", disabled: ro, onclick: () => { if ((it.status || "open") !== v) edit("status", { status: v }); } }, name))),
     firstDoc ? h("div", { class: "actions" }, openDocs(it, it.id)) : [],
     checklistBox(it, ro, (c, done) => editItem(it.id, "check", { line: c.line, expected: c.raw, done })),
