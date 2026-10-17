@@ -34,7 +34,7 @@ Jobs (💻 items run by a Claude session) are marked done automatically when the
 
 Sessions mark their own tasks with the board's edit (conflict check, backup), instead of editing the line by hand:
     python3 taskflow.py TRACKER --status ID inprogress|queued|waiting|open [--note "..."]
-        (inprogress and queued also add the running session's @sessionid)
+        (inprogress and queued also add the running session's @sessionid, and @started or @queued with the time)
     python3 taskflow.py TRACKER --tick ID [--note "one-line outcome"]
 
 The hub shows every tracker (one per project) and all of the user's active tasks on one page:
@@ -555,7 +555,51 @@ def missing_hook_count(items):
     return sum(1 for it in items for d in it["docs"] if d["file"] and not d["hook"] and d["exists"])
 
 
-def build_state(text, path, with_sessions=True):
+WAITING_FOR_RE = re.compile(r"\bWaiting for it\s*(?:\([^)]*\)\s*)?:(.*)", re.IGNORECASE)   # a hand-off's note line
+NAMED_ID_RE = re.compile(r"(?<![\w.])([A-Za-z][A-Za-z0-9_]*)\.(\d+)(?:[–-](?:\1\.)?(\d+))?\b")
+QUEUED_STALE_HOURS = 24   # a queued task is one its session starts next; a day without starting means it waits for something
+
+
+def named_ids(text):
+    """The item ids TEXT names, in order: wi.12, and every id of a range written wi.12–wi.14 or wi.12–14."""
+    ids = []
+    for m in NAMED_ID_RE.finditer(text):
+        a = int(m.group(2))
+        b = int(m.group(3)) if m.group(3) else a
+        for n in (range(a, b + 1) if a <= b <= a + 100 else (a, b)):
+            if f"{m.group(1)}.{n}" not in ids:
+                ids.append(f"{m.group(1)}.{n}")
+    return ids
+
+
+def waits_on(it, target, by_id):
+    """Whether IT stays blocked until TARGET is done: TARGET is in its @needs, or in those of an open item it needs, and so on."""
+    seen, todo = set(), list(it["needs"])
+    while todo:
+        n = todo.pop()
+        if n == target:
+            return True
+        if n in seen or n not in by_id or by_id[n]["done"]:
+            continue
+        seen.add(n)
+        todo.extend(by_id[n]["needs"])
+    return False
+
+
+def stamp_time(value):
+    """A tag's time, "YYYY-MM-DD HH:MM", as a datetime; a bare date counts as the end of that day, so that a check timed
+    from it never fires early. None for anything else."""
+    for fmt, end in (("%Y-%m-%d %H:%M", False), ("%Y-%m-%d", True)):
+        try:
+            t = dt.datetime.strptime((value or "").strip(), fmt)
+        except ValueError:
+            continue
+        return t.replace(hour=23, minute=59) if end else t
+    return None
+
+
+def build_state(text, path, with_sessions=True, now=None):
+    now = now or dt.datetime.now()
     items = parse(text)
     warnings = []
     by_id = {}
@@ -623,6 +667,46 @@ def build_state(text, path, with_sessions=True):
             warnings.append(f"{it['id']} is waiting, but nothing it @needs is open, so the board and the hub show it as ready; "
                             "give it @needs on the item it waits for (for the user's answer, the hand-off back to the session "
                             "that follows the review of the document holding the user's question; or the task), or set its status to open or inprogress.")
+        if it["ready"] and hub_group(it) == "claude" and it["status"] == "queued":
+            # queued means its session starts it next; timed from when it was queued or, if later, when its last need was done
+            since = stamp_time(it["tags"].get("queued"))
+            if since is None:
+                warnings.append(f"{it['id']} is Claude's, unblocked and queued, with no record of when it was queued: if its session "
+                                f"will start it next, queue it again (--status {it['id']} queued), which records the time in @queued; "
+                                f"if its session is working on it, set it in progress (--status {it['id']} inprogress); if it waits for "
+                                "other work, give it @needs on that work's item.")
+            else:
+                freed = [stamp_time(by_id[n]["tags"].get("done")) for n in it["needs"] if n in by_id]
+                start = max([since] + [t for t in freed if t])
+                if now - start > dt.timedelta(hours=QUEUED_STALE_HOURS):
+                    warnings.append(f"{it['id']} is Claude's, unblocked and queued for {int((now - start).total_seconds() // 3600)} hours "
+                                    f"(since {start:%Y-%m-%d %H:%M}): a queued task is one its session starts next, so one that has "
+                                    f"not started in a day waits for something. If its session is working on it, set it in progress "
+                                    f"(--status {it['id']} inprogress); otherwise give it @needs on what it waits for: the task its "
+                                    "session is on, another session's work item, or, for the user's answer, the hand-off that follows the user's review.")
+    # a hand-off's "Waiting for it:" line names, by id, the items that wait for it; each must @need it, directly or through
+    # an open item it needs, since the board reads ready or blocked from @needs alone and not from notes
+    prefixes = [i.rsplit(".", 1)[0] for i in by_id if "." in i]
+    main_prefix = max(set(prefixes), key=prefixes.count) if prefixes else "ab"
+    for h in items:
+        if h["type"] != "session" or h["done"]:
+            continue
+        for note in h["notes"]:
+            m = WAITING_FOR_RE.search(note)
+            if not m:
+                continue
+            named = [x for x in named_ids(m.group(1)) if x != h["id"]]
+            if not named:
+                warnings.append(f"{h['id']}: its \"Waiting for it\" line names no item by id; name each waiting item by its id (for example "
+                                f"\"Waiting for it: {main_prefix}.12 (the pilot), {main_prefix}.14 (the summary)\"), so that --check can confirm each @needs {h['id']}.")
+            for x in named:
+                if x not in by_id:
+                    if x.rsplit(".", 1)[0] in prefixes:
+                        warnings.append(f"{h['id']}: its \"Waiting for it\" line names {x}, which is not in this tracker.")
+                elif not by_id[x]["done"] and not waits_on(by_id[x], h["id"], by_id):
+                    warnings.append(f"{x} is named on the \"Waiting for it\" line of the hand-off {h['id']}, but does not @need {h['id']}, "
+                                    f"directly or through an open item it needs, so the board does not show it waiting for {h['id']}: "
+                                    f"add {h['id']} to its @needs, or take {x} off the line if it no longer waits.")
     # an item links only files about its main document; another review's document gets its own reading
     mains = {os.path.realpath(r["docs"][0]["path"]): r["id"] for r in items
              if r["type"] == "review" and not r["done"] and r["docs"] and r["docs"][0]["path"]}
@@ -754,6 +838,7 @@ def apply_edit(text, item_id, expected_line, op, args, today, now=None):
     insert = remove = None
     if op == "done":
         line = remove_tag(line, "status")
+        line = remove_tag(line, "queued")
         if _find_tag(line, "done") is None:
             line = set_tag(line, "done", now or today)
         if (args or {}).get("note"):
@@ -761,6 +846,7 @@ def apply_edit(text, item_id, expected_line, op, args, today, now=None):
     elif op == "reopen":
         line = remove_tag(line, "done")
         line = remove_tag(line, "started")
+        line = remove_tag(line, "queued")
         line = set_tag(line, "status", "open")
         if (args or {}).get("note"):
             insert = f"{today}: reopened. {clean_note(args['note'])}"
@@ -777,6 +863,13 @@ def apply_edit(text, item_id, expected_line, op, args, today, now=None):
                 line = set_tag(line, "started", now or now_stamp())
         else:
             line = remove_tag(line, "started")
+        # @queued: when it was queued, so --check can tell a queued task that has not started for a day; kept while it
+        # stays queued, dropped when its status changes or it is ticked done
+        if value == "queued":
+            if _find_tag(line, "queued") is None:
+                line = set_tag(line, "queued", now or now_stamp())
+        else:
+            line = remove_tag(line, "queued")
     elif op == "needs":
         needs = [n.strip() for n in (args or {}).get("needs", []) if n.strip()]
         known = {x["id"] for x in items if x["has_id"]}
@@ -2781,7 +2874,8 @@ def main(argv=None):
     ap.add_argument("--app", action="store_true", help="serve the board for the Taskflow app: take a free port, print "
                     "'TASKFLOW_URL <url>', and exit when standard input closes (the app closes it with the window)")
     ap.add_argument("--status", nargs=2, metavar=("ID", "STATUS"),
-                    help="set item ID to open, queued, inprogress or waiting (inprogress and queued add the running session's @sessionid)")
+                    help="set item ID to open, queued, inprogress or waiting (inprogress and queued add the running session's @sessionid, "
+                         "and @started or @queued with the time)")
     ap.add_argument("--tick", metavar="ID", help="tick item ID done")
     ap.add_argument("--note", help="with --tick or --status: a one-line note, added as a dated line under the item")
     ap.add_argument("--link", nargs=2, metavar=("ID", "PATH"),

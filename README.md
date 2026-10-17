@@ -106,17 +106,18 @@ My effort tracker:
 		- Check Table 2 @done(2026-10-11 09:40)
 	- Go back to the simulation session @type(session) @owner(me) @session(sims) @id(ab.5) @needs(ab.4) @sessionid(<session id>)
 		Prompt: apply the decisions in §5 of the report and rerun scenario B.
+		Waiting for it: ab.6 (the rerun).
 	- Rerun scenario B @type(work) @owner(claude) @id(ab.6) @needs(ab.5)
 ```
 
 An excerpt, for illustration: `<session id>` stands for a real one, and ab.3 is not shown, so `--check` would flag it as it is.
 
 - `@owner(me)` is yours; `@owner(claude)` is work a Claude session runs on its own; `@type(session)` is a hand-off back to a session.
-- `@needs` draws the arrows and decides what is ready.
+- `@needs` draws the arrows and decides what is ready. A hand-off's `Waiting for it:` line names by id each task that waits for it, and `--check` flags a named task that does not `@need` the hand-off, since notes do not block anything.
 - Indented `- ` lines under a task are its checklist, ticked with `@done`.
 - A task's first linked document is its main one: the **Open** button opens it, and **All N** beside the button lists the others. `taskflow.py TRACKER --link ID PATH` puts a document first (with `--also`, after the others), so you never reorder links by hand. Only files closely related to the main document follow it (earlier versions, an audio summary, its reviews, the results behind it); a separate document gets its own review.
 - A review's checklist lists the files you must read: a step named for a linked file is a file to review, which you tick when you have read it. Then **Open** opens the first one not yet ticked, and **All N** lists just those, so earlier versions and results stay out of the way. `--link ID PATH --to-review` links a file and adds its step.
-- `@status(inprogress)`, `@status(queued)` (a Claude task its session starts next), `@done(…)`, `@priority(high)`, and the project's `@harddeadline` and `@softdeadline` on the first line, do what their names say. To bring an older tracker up to the current conventions, `taskflow.py TRACKER --refresh-header` updates its header from the template, and `--audit` lists what to check on each open item. `skills/taskflow-tracker/SKILL.md` has the full rules.
+- `@status(inprogress)`, `@status(queued)` (a Claude task its session starts next; `--status` records when, and `--check` flags one queued for more than a day), `@done(…)`, `@priority(high)`, and the project's `@harddeadline` and `@softdeadline` on the first line, do what their names say. To bring an older tracker up to the current conventions, `taskflow.py TRACKER --refresh-header` updates its header from the template, and `--audit` lists what to check on each open item. `skills/taskflow-tracker/SKILL.md` has the full rules.
 
 ## The board
 

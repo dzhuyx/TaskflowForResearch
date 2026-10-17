@@ -109,7 +109,7 @@ class ParseTests(unittest.TestCase):
         self.assertIn("--status wi.4 queued", warns(done)[0])
         self.assertTrue(warns(done.replace("@status(waiting) @id(wi.4)", "@status(open) @id(wi.4)"))[0].startswith("wi.4 is Claude's, unblocked and open"))
         self.assertTrue(warns(done.replace("@status(waiting) @id(wi.4)", "@id(wi.4)"))[0].startswith("wi.4 is Claude's, unblocked and open"))   # no @status: open
-        for fine in ("queued", "inprogress"):
+        for fine in (f"queued) @queued({tf.now_stamp()}", "inprogress"):
             self.assertEqual(warns(done.replace("@status(waiting) @id(wi.4)", f"@status({fine}) @id(wi.4)")), [])
         self.assertEqual(warns(LISTED), [])                                                    # blocked: fine
         handoff = done.replace("@type(action) @owner(claude) @status(waiting) @id(wi.4)", "@type(session) @owner(claude) @status(open) @id(wi.4)") \
@@ -117,6 +117,51 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(warns(handoff), [])                                                   # a hand-off is the user's to start
         mine = done.replace("@owner(claude) @status(waiting) @id(wi.4)", "@owner(me) @status(waiting) @id(wi.4)")
         self.assertTrue(warns(mine)[0].startswith("wi.4 is waiting"))                          # anyone else's: the general warning
+
+    def test_handoff_waiting_line_names_items_that_need_it(self):
+        # a hand-off's "Waiting for it:" line names by id the items that wait for it; each @needs it, directly or through an
+        # open item it needs, or the board shows it as not waiting for the hand-off
+        handoff = ("\t- Go back to the session @type(session) @owner(me) @id(wi.6) @needs(wi.1)\n"
+                   "\t\tPrompt: apply my comments.\n\t\tWaiting for it: wi.4 (the next step), wi.7–wi.8, wi.5 (done), wi.99.\n"
+                   "\t- Use the answers @type(review) @owner(me) @id(wi.7) @needs(wi.6)\n\t\tfile:///tmp/c.pdf\n\t\t- c.pdf\n"
+                   "\t- Then this @type(review) @owner(me) @id(wi.8) @needs(wi.7)\n\t\tfile:///tmp/d.pdf\n\t\t- d.pdf\n")
+        txt = LISTED.replace("\nDone:\n", "\n" + handoff + "\nDone:\n")
+        def warns(text):
+            return [w for w in tf.build_state(text, Path("x.taskpaper"))["warnings"]]
+        self.assertEqual(tf.named_ids("wi.4 (x), wi.7–wi.9, wi.12-14 and v5.2"), ["wi.4", "wi.7", "wi.8", "wi.9", "wi.12", "wi.13", "wi.14", "v5.2"])
+        w = warns(txt)
+        self.assertEqual(len(w), 2, w)
+        self.assertTrue(w[0].startswith('wi.4 is named on the "Waiting for it" line of the hand-off wi.6, but does not @need wi.6'))
+        self.assertEqual(w[1], 'wi.6: its "Waiting for it" line names wi.99, which is not in this tracker.')
+        # wi.7 needs it directly and wi.8 through wi.7; the done wi.5 waits no more
+        fixed = txt.replace("@id(wi.4) @needs(wi.3)", "@id(wi.4) @needs(wi.3, wi.6)").replace(", wi.99.", ".")
+        self.assertEqual(warns(fixed), [])
+        through_done = fixed.replace("@id(wi.7) @needs(wi.6)", "@id(wi.7) @needs(wi.6) @done(2026-10-16 10:00)")
+        self.assertTrue(any(x.startswith("wi.8 is named on") for x in warns(through_done)))    # not through a done item
+        prose = fixed.replace("Waiting for it: wi.4 (the next step), wi.7–wi.8, wi.5 (done).", "Waiting for it: the main stage in every study.")
+        self.assertTrue(any(x.startswith('wi.6: its "Waiting for it" line names no item by id') and "wi.12" in x for x in warns(prose)))
+        closed = fixed.replace("@id(wi.6) @needs(wi.1)", "@id(wi.6) @needs(wi.1) @done(2026-10-16 10:00)").replace("@needs(wi.3, wi.6)", "@needs(wi.3)")
+        self.assertFalse(any("Waiting for it" in x for x in warns(closed)))                       # a done hand-off: not read
+
+    def test_long_queued_task_is_warned(self):
+        # queued means its session starts it next: one queued over a day, or with no record of when, is flagged
+        done = LISTED.replace("@id(wi.1)", "@id(wi.1) @done(2026-10-08)").replace("@id(wi.2)", "@id(wi.2) @done(2026-10-08)") \
+                     .replace("@status(waiting) @id(wi.3)", "@id(wi.3) @done(2026-10-15 08:00)")
+        queued = done.replace("@status(waiting) @id(wi.4)", "@status(queued) @queued(2026-10-15 09:00) @id(wi.4)")
+        def warns(text, now):
+            return [w for w in tf.build_state(text, Path("x.taskpaper"), now=dt.datetime.strptime(now, "%Y-%m-%d %H:%M"))["warnings"]
+                    if w.startswith("wi.4 ")]
+        self.assertEqual(warns(queued, "2026-10-16 08:59"), [])
+        late = warns(queued, "2026-10-16 09:01")
+        self.assertEqual(len(late), 1)
+        self.assertTrue(late[0].startswith("wi.4 is Claude's, unblocked and queued for 24 hours (since 2026-10-15 09:00)"))
+        freed = queued.replace("@done(2026-10-15 08:00)", "@done(2026-10-16 08:00)")           # timed from when it was unblocked
+        self.assertEqual(warns(freed, "2026-10-16 09:01"), [])
+        self.assertEqual(warns(freed.replace("@done(2026-10-16 08:00)", "@done(2026-10-16)"), "2026-10-17 23:00"), [])   # a bare date: its end
+        blocked = queued.replace("@id(wi.3) @done(2026-10-15 08:00)", "@status(open) @id(wi.3)")
+        self.assertEqual(warns(blocked, "2026-10-20 09:00"), [])                                 # not yet unblocked
+        bare = done.replace("@status(waiting) @id(wi.4)", "@status(queued) @id(wi.4)")
+        self.assertTrue(warns(bare, "2026-10-15 09:00")[0].startswith("wi.4 is Claude's, unblocked and queued, with no record of when"))
 
     def test_repeated_tag_done_status_and_handoff_without_prompt_are_warned(self):
         def warns(text):
@@ -189,6 +234,11 @@ class EditTests(unittest.TestCase):
         new = tf.apply_edit(SAMPLE, "wi.4", line_of(SAMPLE, "wi.4"), "status", {"status": "queued"}, TODAY, "2026-10-15 09:30")
         self.assertIn("@status(queued)", line_of(new, "wi.4"))
         self.assertNotIn("@started", line_of(new, "wi.4"))                     # queued has not started
+        self.assertIn("@queued(2026-10-15 09:30)", line_of(new, "wi.4"))       # when it was queued, for --check
+        again = tf.apply_edit(new, "wi.4", line_of(new, "wi.4"), "status", {"status": "queued"}, TODAY, "2026-10-16 11:00")
+        self.assertIn("@queued(2026-10-15 09:30)", line_of(again, "wi.4"))     # queued again: the first time stays
+        done = tf.apply_edit(new, "wi.4", line_of(new, "wi.4"), "done", {}, TODAY, "2026-10-16 11:00")
+        self.assertNotIn("@queued", line_of(done, "wi.4"))                     # ticked: dropped with its status
         d = Path(tempfile.mkdtemp()).resolve()
         saved = tf.BACKUP_ROOT
         tf.BACKUP_ROOT = d / "backups"
@@ -204,6 +254,7 @@ class EditTests(unittest.TestCase):
             line = line_of(t.read_text(encoding="utf-8"), "wi.4")
             self.assertIn("@status(inprogress)", line)
             self.assertIn("@started(", line)
+            self.assertNotIn("@queued", line)                                    # started: no longer queued
             self.assertEqual(line.count(SID_A), 1)
         finally:
             tf.BACKUP_ROOT = saved
@@ -345,7 +396,7 @@ class LinkDocTests(unittest.TestCase):
         self.hook = lambda u: "hook://file/H" + str(len(u)) + "?n=" + urllib.parse.quote(u.rsplit("/", 1)[1])
         self.text = ("Reviews:\n\t- Review the report @type(review) @owner(me) @id(r.1)\n"
                      f"\t\t{self.url('results')}\n\t\t{self.hook(self.url('results'))}\n\t\tQuestions: §2.\n"
-                     f"\t\t{self.url('report_20261011_v1.md')}\n\t- Other @type(work) @owner(claude) @status(queued) @id(r.2)\n")
+                     f"\t\t{self.url('report_20261011_v1.md')}\n\t- Other @type(work) @owner(claude) @status(queued) @queued({tf.now_stamp()}) @id(r.2)\n")
 
     def tearDown(self):
         shutil.rmtree(self.dir)
@@ -721,7 +772,7 @@ class HubTests(unittest.TestCase):
 
     def test_queued_claude_tasks_are_listed_with_running_ones(self):
         self.b.write_text(HUB_OTHER.replace("Queued for Claude @type(work) @owner(claude) @id(ot.9)",
-                                            f"Queued for Claude @type(work) @owner(claude) @status(queued) @id(ot.9) @sessionid({SID_A})"), encoding="utf-8")
+                                            f"Queued for Claude @type(work) @owner(claude) @status(queued) @queued({tf.now_stamp()}) @id(ot.9) @sessionid({SID_A})"), encoding="utf-8")
         tf.hub_add(self.b)
         st = tf.hub_state()
         b = st["projects"][0]
@@ -1463,7 +1514,7 @@ class ConventionsTests(unittest.TestCase):
         return rc, buf.getvalue()
 
     def test_header_drift_is_noted_and_refreshed_from_the_template(self):
-        self.add("\t- Package @type(work) @owner(claude) @status(queued) @id(c.1) @added(2026-10-15 10:00)\n")
+        self.add(f"\t- Package @type(work) @owner(claude) @status(queued) @queued({tf.now_stamp()}) @id(c.1) @added(2026-10-15 10:00)\n")
         self.assertEqual(tf.header_drift(self.t.read_text(encoding="utf-8")), "")              # a new tracker matches
         old = self.t.read_text(encoding="utf-8")
         stale = old.replace("@status(open), @status(queued), @status(inprogress) or @status(waiting)", "@status(open) or @status(waiting)") \
