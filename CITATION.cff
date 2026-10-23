@@ -8,6 +8,7 @@ authors:
     given-names: Yuxin
     orcid: "https://orcid.org/0000-0001-8441-0290"
 version: 1.0.0
+doi: 10.5281/zenodo.23605674
 date-released: "2026-10-23"
 license: MIT
 repository-code: "https://github.com/dzhuyx/TaskflowForResearch"

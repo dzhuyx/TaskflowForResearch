@@ -182,7 +182,7 @@ tests/browser/run_all.sh          # the board, hub and Progress view in WebKit (
 
 ## Citing
 
-If you use Taskflow for Research in your work, please cite it. **Cite this repository**, in the sidebar of its GitHub page, gives the reference in APA and BibTeX, from `CITATION.cff`. Each release is archived at Zenodo, with a DOI for that version and one for every version.
+If you use Taskflow for Research in your work, please cite it. **Cite this repository**, in the sidebar of its GitHub page, gives the reference in APA and BibTeX, from `CITATION.cff`. Each release is archived at Zenodo, with a DOI for that version and one for every version: [10.5281/zenodo.23605674](https://doi.org/10.5281/zenodo.23605674), which always leads to the latest (v1.0.0's own is [10.5281/zenodo.23605675](https://doi.org/10.5281/zenodo.23605675)).
 
 ## Saying thanks
 
