@@ -180,6 +180,10 @@ tests/browser/run_all.sh          # the board, hub and Progress view in WebKit (
 - One user, local only: the servers listen on 127.0.0.1 and refuse requests from other websites (every change needs a token from the page). Other programs on the same Mac can still read your trackers and fetch that token, so use Taskflow on a Mac where you are the only user.
 - A document link that would run something (an app, a script, an installer) is shown in Finder, not opened; open it yourself if you trust it. `hook://` links are opened by Hookmark, which this check cannot see into.
 
+## Citing
+
+If you use Taskflow for Research in your work, please cite it. **Cite this repository**, in the sidebar of its GitHub page, gives the reference in APA and BibTeX, from `CITATION.cff`. Each release is archived at Zenodo, with a DOI for that version and one for every version.
+
 ## Saying thanks
 
 If you find this useful, you can show your appreciation by forking and/or starring the repository, so that I know it has helped someone.

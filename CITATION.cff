@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use Taskflow for Research in your work, please cite it as below."
+type: software
+title: "Taskflow for Research"
+abstract: "A plain-text task board for running several Claude Code sessions on one research effort. It shows what you need to read, which session to go back to and with what instruction, and what Claude is running, drawn as a dependency graph you can tick off."
+authors:
+  - family-names: Zhu
+    given-names: Yuxin
+version: 1.0.0
+date-released: "2026-10-23"
+license: MIT
+repository-code: "https://github.com/dzhuyx/TaskflowForResearch"
+keywords:
+  - research workflow
+  - Claude Code
+  - task tracking
+  - human-in-the-loop
+  - TaskPaper
