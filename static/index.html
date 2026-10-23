@@ -582,6 +582,11 @@ function sharedRun(u, v) {   // two vertical parts on one line that overlap: the
   const lo = Math.max(Math.min(u[0].y, u[1].y), Math.min(v[0].y, v[1].y)), hi = Math.min(Math.max(u[0].y, u[1].y), Math.max(v[0].y, v[1].y));
   return hi - lo > 1;
 }
+function pairTangled([a, b], [c, d], r, s) {   // arrows a→b and c→d, drawn as routes r and s, cross or run together (tangle)
+  if (c === a || d === b) return false;
+  return c !== b && d !== a && (r.some((u) => s.some((v) => crosses(u[0], u[1], v[0], v[1]))) || sharedRun(r[1], s[1]));
+}
+function boxHit(r, c) { return r.some(([u, v]) => throughBox(u, v, c)); }   // route r passes through the box centred at c
 function tangle(pts, es) {
   // How tangled a group is as drawn (right-angled arrows, route): each pair of arrows that cross, or whose vertical parts
   // run together, counts 1 (arrows from one box or into one box may share their run: that is a fork, not a tangle); each
@@ -589,17 +594,36 @@ function tangle(pts, es) {
   const routes = es.map(([a, b]) => route(pts[a], pts[b]));
   let s = 0;
   es.forEach(([a, b], i) => {
-    for (let j = i + 1; j < es.length; j++) {
-      const [c, d] = es[j];
-      if (c === a || d === b) continue;
-      if (c !== b && d !== a && (routes[i].some((u) => routes[j].some((v) => crosses(u[0], u[1], v[0], v[1]))) || sharedRun(routes[i][1], routes[j][1]))) s += 1;
-    }
-    for (const id in pts) if (id !== a && id !== b && routes[i].some(([u, v]) => throughBox(u, v, pts[id]))) s += 2;
+    for (let j = i + 1; j < es.length; j++) if (pairTangled(es[i], es[j], routes[i], routes[j])) s += 1;
+    for (const id in pts) if (id !== a && id !== b && boxHit(routes[i], pts[id])) s += 2;
     s += SPAN_COST * Math.max(0, Math.round(Math.abs(pts[b].x - pts[a].x) / COL_STEP) - 1);   // an edge longer than one column
   });
   return s;
 }
 function untangle(pts, es, score) {   // swaps neighbouring boxes within a column while that lowers the tangle (pts changes in place)
+  // A swap moves just its two boxes up and down, so of what tangle() counts only the part that involves them can change:
+  // their own arrows (each against every arrow and box), and other arrows through either box. That part is counted
+  // before and after the swap, and the swap is kept when it is smaller, which is when tangle() would be smaller (a swap
+  // that changes nothing is not kept, as the whole count sometimes did by rounding); counting the whole group for every
+  // swap tried took seconds on a board of 200 boxes (2026-10-23). Arrows far apart are passed
+  // over by their extents first: two can cross only where their extents overlap, and run together only within 1 px.
+  const routes = es.map(([a, b]) => route(pts[a], pts[b])), ids = Object.keys(pts), at = new Map();
+  const extent = (r) => { const xs = r.flatMap(([u, v]) => [u.x, v.x]), ys = r.flatMap(([u, v]) => [u.y, v.y]);
+    return { x1: Math.min(...xs), x2: Math.max(...xs), y1: Math.min(...ys), y2: Math.max(...ys) }; };
+  const ext = routes.map(extent);
+  const meet = (i, j) => { const p = ext[i], q = ext[j]; return q.x1 - p.x2 < 1 && p.x1 - q.x2 < 1 && q.y1 <= p.y2 && p.y1 <= q.y2; };
+  const reach = (i, c) => { const p = ext[i]; return p.x2 >= c.x - BOX_W / 2 && p.x1 <= c.x + BOX_W / 2 && p.y2 >= c.y - BOX_H / 2 && p.y1 <= c.y + BOX_H / 2; };
+  es.forEach(([a, b], k) => [a, b].forEach((n) => { if (!at.has(n)) at.set(n, new Set()); at.get(n).add(k); }));
+  const near = (a, b, mine) => {
+    let s = 0;
+    for (const i of mine) {
+      for (let j = 0; j < es.length; j++) if (j !== i && !(mine.has(j) && j < i) && meet(i, j) && pairTangled(es[i], es[j], routes[i], routes[j])) s += 1;
+      for (const id of ids) if (id !== es[i][0] && id !== es[i][1] && reach(i, pts[id]) && boxHit(routes[i], pts[id])) s += 2;
+    }
+    es.forEach((e, j) => { if (!mine.has(j)) { if (reach(j, pts[a]) && boxHit(routes[j], pts[a])) s += 2; if (reach(j, pts[b]) && boxHit(routes[j], pts[b])) s += 2; } });
+    return s;
+  };
+  const reroute = (mine) => mine.forEach((k) => { routes[k] = route(pts[es[k][0]], pts[es[k][1]]); ext[k] = extent(routes[k]); });
   const cols = new Map();
   Object.keys(pts).forEach((id) => { const x = Math.round(pts[id].x); if (!cols.has(x)) cols.set(x, []); cols.get(x).push(id); });
   const lists = [...cols.values()].filter((c) => c.length > 1).map((c) => c.sort((a, b) => pts[a].y - pts[b].y));
@@ -607,9 +631,10 @@ function untangle(pts, es, score) {   // swaps neighbouring boxes within a colum
     better = false;
     for (const col of lists) for (let i = 0; i + 1 < col.length; i++) {
       const a = col[i], b = col[i + 1], ya = pts[a].y, yb = pts[b].y;
-      pts[a].y = yb; pts[b].y = ya;
-      const t = tangle(pts, es);
-      if (t < score) { score = t; col[i] = b; col[i + 1] = a; better = true; } else { pts[a].y = ya; pts[b].y = yb; }
+      const mine = new Set([...(at.get(a) || []), ...(at.get(b) || [])]), before = near(a, b, mine);
+      pts[a].y = yb; pts[b].y = ya; reroute(mine);
+      const after = near(a, b, mine);
+      if (after < before) { score += after - before; col[i] = b; col[i + 1] = a; better = true; } else { pts[a].y = ya; pts[b].y = yb; reroute(mine); }
     }
   }
 }
@@ -1147,14 +1172,21 @@ function docRow(d) {
     d.file && !d.hook && d.exists && state.hookmark !== false ? h("span", { class: "tiny bad", title: "Run 'Add Hookmark links'" }, "no Hookmark link") : [],
     d.file && d.exists === false && !d.hook ? h("span", { class: "tiny bad" }, "file not found") : []);
 }
-function sessionRow(sid) {
+function openTitle(it) {   // Open in VS Code's tooltip: what it does, and whether a hand-off's prompt goes with it
+  const one = !!it && it.type === "session" && it.notes.filter((n) => /^Prompt:\s*\S/.test(n)).length === 1;
+  return "Open this session in VS Code's Claude Code panel" + (one ? ", with the hand-off's prompt in its input box" : "");
+}
+function sessionRow(sid, it) {
   const s = sessionOf(sid);
   return h("div", { class: "row" },
     h("span", {}, h("b", {}, s.title || "untitled session"), " ", h("code", { title: sid }, sid.slice(0, 8)),
       s.found === false ? h("span", { class: "tiny bad", title: "No transcript under ~/.claude/projects (cleaned up, or another machine)" }, " transcript not found") : [],
       h("span", { class: "live", "data-sid": sid })),   // "running in VS Code", once the server finds it running
-    // Go to session: shown only while the session runs; brings its VS Code panel or Ghostty tab forward
-    h("button", { class: "primary goto", "data-sid": sid, hidden: "hidden", title: "Bring this session's window to the front", onclick: () => gotoSession(sid) }, "Go to session"),
+    // Go to session: while the session runs, brings its VS Code panel or Ghostty tab forward; otherwise,
+    // when its transcript is there, Open in VS Code opens it in VS Code's Claude Code panel, a hand-off's prompt in its input
+    // box
+    h("button", { class: "primary goto", "data-sid": sid, hidden: s.found ? null : "hidden", title: openTitle(it),
+      onclick: (e) => gotoSession(sid, it && it.id, e.currentTarget) }, "Open in VS Code"),
     h("button", { title: s.resume || "", onclick: () => copyText(s.resume || ("claude --resume " + sid), "Resume command copied. Paste it into a terminal.") }, "Copy resume command"),
     h("button", { title: sid, onclick: () => copyText(sid, "Session id copied.") }, "Copy id"));
 }
@@ -1215,7 +1247,7 @@ function sessionBox(it) {
   const resume = it.sessionids.length ? null : it.notes.find((n) => /claude --resume/.test(n));
   return h("div", { class: "sessionbox" },
     h("div", { class: "shead" }, handoff ? "Go back to this Claude Code session" : "From Claude Code session" + (it.sessionids.length > 1 ? "s" : "")),
-    it.sessionids.length ? it.sessionids.map(sessionRow)
+    it.sessionids.length ? it.sessionids.map((sid) => sessionRow(sid, it))
       : h("div", {}, it.tags.session || "(not named)", " ", h("span", { class: "tiny bad", title: "Add @sessionid(<full session id>) to the item" }, "no @sessionid")),
     resume ? h("div", { class: "muted" }, h("code", {}, resume)) : [],
     prompts.map((pr, k) => h("div", { class: "row" },
@@ -1282,14 +1314,16 @@ function markRunning(sids, url, still) {   // reveal Go to session for the sessi
   api(url + "ids=" + encodeURIComponent(sids.join(","))).then((r) => {
     if (!r.ok || !still()) return;
     Object.entries(r.data).forEach(([sid, x]) => document.querySelectorAll("[data-sid='" + sid + "']").forEach((n) => {
-      if (n.classList.contains("goto")) n.hidden = false;
+      if (n.classList.contains("goto")) { n.hidden = false; n.textContent = "Go to session"; n.title = "Bring this session's window to the front"; }
       else n.textContent = " ● running in " + (APP_NAME[x.app] || "another app") + (x.status === "busy" ? ", working" : "");
     }));
   });
 }
-async function gotoSession(sid) {
-  const r = await api("/api/session/focus", { sid });
-  flash(r.ok ? r.data.message : r.data.error || "Error " + r.status, !r.ok);
+async function gotoSession(sid, item, b) {   // the server brings it forward or opens it in VS Code; a hand-off's prompt comes back to copy
+  if (b && b.textContent === "Open in VS Code") flash("Opening the session in VS Code…");
+  const r = await api("/api/session/focus", { sid, item });
+  if (r.ok && r.data.copy) copyText(r.data.copy, r.data.message);
+  else flash(r.ok ? r.data.message : r.data.error || "Error " + r.status, !r.ok);
 }
 function renderPanel() {
   const p = el("panel"), it = selectedId && byId(selectedId);

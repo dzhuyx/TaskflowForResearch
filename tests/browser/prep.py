@@ -5,6 +5,12 @@ from pathlib import Path
 kind, d = sys.argv[1], Path(sys.argv[2]).resolve()
 sid = sys.argv[3] if len(sys.argv) > 3 else ""
 FAKE = "0123abcd-1111-2222-3333-444455556666"   # a session id that never runs
+STOPPED = "4567cdef-1111-2222-3333-444455556666"   # a session that is not running, with a transcript to resume it from
+
+
+def transcript(projects, session, cwd):   # a stopped session's transcript: only the line that records its folder
+    (projects / "-fixture").mkdir(parents=True, exist_ok=True)
+    (projects / "-fixture" / f"{session}.jsonl").write_text(json.dumps({"type": "user", "cwd": str(cwd)}) + "\n", encoding="utf-8")
 
 
 def edit_lines(path, fn):
@@ -28,17 +34,22 @@ elif kind == "checklist":       # board: three steps under f.7; a session (not r
         lines[i + 1:i + 1] = ["\t\t- Read section 2", "\t\t- Check Lemma 1 @done(2026-10-10 09:00)", "\t\t\t- Its constants"]
         lines[line_of(lines, "f.8")] += f" @session(Fork) @sessionid({FAKE})"
     edit_lines(d / "fix_tracker.taskpaper", fn)
-elif kind == "go_to_session":   # board: a running session on f.8, one that never runs on f.7
+elif kind == "go_to_session":   # board: a running session on f.8, one that never runs on f.7, a stopped one on the hand-off f.9
     def fn(lines):
         lines[line_of(lines, "f.8")] += f" @sessionid({sid})"
         lines[line_of(lines, "f.7")] += f" @sessionid({FAKE})"
+        k = line_of(lines, "f.9")
+        lines[k] += f" @sessionid({STOPPED})"
+        lines.insert(k + 1, "\t\tPrompt: apply my comments, then rerun.")
     edit_lines(d / "fix_tracker.taskpaper", fn)
+    transcript(d / "projects", STOPPED, d)
 elif kind == "hub_checklist":   # hub: two steps under al.1
     p = d / "trackers" / "alpha_tracker.taskpaper"
     p.write_text(p.read_text(encoding="utf-8").replace("\t\tRead section 2.\n", "\t\tRead section 2.\n\t\t- Outline the comments\n\t\t- Send them\n", 1), encoding="utf-8")
-elif kind == "hub_go_to_session":   # hub: a running session on al.1
+elif kind == "hub_go_to_session":   # hub: a running session on al.1; the hand-off al.2's session stopped, with its transcript
     p = d / "trackers" / "alpha_tracker.taskpaper"
     p.write_text(p.read_text(encoding="utf-8").replace("@id(al.1)\n", f"@id(al.1) @sessionid({sid})\n", 1), encoding="utf-8")
+    transcript(d / "projects", "0000aaaa-1111-2222-3333-444455556666", d)
 elif kind == "hub_redesign":   # hub: deadlines on two projects, an idle project, and a dated note on be.1
     import os
     sys.path.insert(0, os.environ["TF_DIR"])

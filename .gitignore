@@ -5,6 +5,7 @@ __pycache__/
 trackers.json
 trackers.lock
 hub_view.json
+deadline_calendar.json
 backups/
 jobs/
 launchers/

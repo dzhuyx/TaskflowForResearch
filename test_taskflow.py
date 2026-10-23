@@ -1676,14 +1676,44 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(len([w for w in st["warnings"] if "@sessionid" in w]), 1)
         self.assertIn("s.4", next(w for w in st["warnings"] if "@sessionid" in w))
 
+    def test_a_transcript_is_read_on_from_where_the_last_look_stopped(self):
+        f = tf.CLAUDE_PROJECTS / "-Users-x-proj" / f"{SID_A}.jsonl"
+        look = lambda: (tf._SESSION_CACHE.clear(), tf.session_info(SID_A))[1]      # each look after the cache has expired
+        self.assertEqual((look()["title"], look()["cwd"]), ("renamed fork", "/Users/x/My Project"))
+        with open(f, "a", encoding="utf-8") as fh:            # a new name, a later cwd, and a line still being written
+            fh.write(json.dumps({"type": "user", "cwd": "/elsewhere", "sessionId": SID_A}) + "\n"
+                     + json.dumps({"type": "custom-title", "customTitle": "new name"}) + "\n" + '{"type": "custom-title", "customTi')
+        self.assertEqual((look()["title"], look()["cwd"]), ("new name", "/Users/x/My Project"))   # the first cwd stays
+        self.assertEqual(tf._SESSION_READ[SID_A][2], f.stat().st_size - len('{"type": "custom-title", "customTi'))
+        with open(f, "a", encoding="utf-8") as fh:
+            fh.write('tle": "written in two goes"}\n')
+        self.assertEqual(look()["title"], "written in two goes")
+        f.write_text(json.dumps({"type": "agent-name", "agentName": "a new file"}) + "\n", encoding="utf-8")   # shorter: read afresh
+        self.assertEqual((look()["title"], look()["cwd"]), ("a new file", None))
+        f.write_text(json.dumps({"type": "agent-name", "agentName": "rewritten, and longer"}) + "\n", encoding="utf-8")   # in place
+        self.assertEqual(look()["title"], "rewritten, and longer")
+
+    def test_small_reads_give_the_same_answer(self):
+        whole = tf.session_info(SID_A)
+        saved = tf.SESSION_CHUNK
+        try:
+            for n in (1, 7, 50):
+                tf.SESSION_CHUNK = n
+                tf._SESSION_CACHE.clear(); tf._SESSION_READ.clear()
+                self.assertEqual(tf.session_info(SID_A), whole, n)
+        finally:
+            tf.SESSION_CHUNK = saved
+
 
 class GoToSessionTests(unittest.TestCase):
     """Go to session: finding a running session and how to bring it forward. Nothing is focused here:
     every request that could bring a window forward names a session that is not running."""
     def setUp(self):
         self.dir = Path(tempfile.mkdtemp()).resolve()
-        self.saved = (tf.CLAUDE_SESSIONS, tf.CLAUDE_IDE, tf.HUB_LIST, tf.host_app)
+        self.saved = (tf.CLAUDE_SESSIONS, tf.CLAUDE_IDE, tf.HUB_LIST, tf.host_app, tf.CLAUDE_PROJECTS, tf.VSCODE_PAUSE, tf.VSCODE_COLD_PAUSE)
         tf.CLAUDE_SESSIONS, tf.CLAUDE_IDE, tf.HUB_LIST = self.dir / "sessions", self.dir / "ide", self.dir / "trackers.json"
+        tf.CLAUDE_PROJECTS = self.dir / "projects"                                             # transcripts: none but the tests' own
+        tf._SESSION_CACHE.clear()
         tf.CLAUDE_SESSIONS.mkdir()
         tf.CLAUDE_IDE.mkdir()
         me = os.getpid()
@@ -1701,7 +1731,8 @@ class GoToSessionTests(unittest.TestCase):
         (tf.CLAUDE_SESSIONS / f"{os.getpid()}.json").write_text(json.dumps(rec))
 
     def tearDown(self):
-        tf.CLAUDE_SESSIONS, tf.CLAUDE_IDE, tf.HUB_LIST, tf.host_app = self.saved
+        tf.CLAUDE_SESSIONS, tf.CLAUDE_IDE, tf.HUB_LIST, tf.host_app, tf.CLAUDE_PROJECTS, tf.VSCODE_PAUSE, tf.VSCODE_COLD_PAUSE = self.saved
+        tf._SESSION_CACHE.clear()
         shutil.rmtree(self.dir)
 
     def test_running_session_and_reused_process_ids(self):
@@ -1735,6 +1766,63 @@ class GoToSessionTests(unittest.TestCase):
         self.assertIsNone(tf.focus_plan(SID_A)[0])
         self.assertEqual(tf.focus_session(SID_B)[0], False)                                     # not running: nothing is run
         self.assertIn("not running", tf.focus_session(SID_B)[1])
+
+    def transcript(self, sid, cwd):
+        d = tf.CLAUDE_PROJECTS / "-Users-x-proj"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / f"{sid}.jsonl").write_text(json.dumps({"type": "user", "cwd": cwd}) + "\n")
+        tf._SESSION_CACHE.clear()
+
+    def test_a_session_not_running_opens_in_vscode_with_the_prompt(self):
+        # Open in VS Code: a window on the session's own folder, then the extension's link, with a
+        # hand-off's prompt for its input box
+        folder = self.dir / "proj sub"
+        folder.mkdir()
+        self.assertIn("no longer has its transcript", tf.focus_plan(SID_B)[1])                   # no transcript: cannot resume
+        self.transcript(SID_B, str(self.dir / "gone"))
+        self.assertIn("is not there", tf.focus_plan(SID_B)[1])                                   # its folder was moved
+        self.transcript(SID_B, str(folder))
+        steps, said = tf.focus_plan(SID_B, "apply my comments & go on")
+        self.assertEqual(steps, [["open-vscode", str(folder)],
+                                 ["open", tf.VSCODE_SESSION_LINK + SID_B + "&prompt=apply%20my%20comments%20%26%20go%20on"]])
+        self.assertIn("with its prompt in the input box", said)
+        self.assertEqual(tf.focus_plan(SID_B)[0][-1], ["open", tf.VSCODE_SESSION_LINK + SID_B])   # no prompt: the link alone
+        # run with the commands recorded, not run: the folder's window first, then the link
+        ran, code = [], [0]
+        fake = lambda cmd, **kw: (ran.append(cmd), subprocess.CompletedProcess(cmd, code[0], "", ""))[1]
+        vs, link = ["open", "-a", "Visual Studio Code", str(folder)], ["open", tf.VSCODE_SESSION_LINK + SID_B + "&prompt=go%20on"]
+        tf.VSCODE_PAUSE, tf.VSCODE_COLD_PAUSE = 0, 0
+        for running in (True, False):                                                            # VS Code open, or starting cold
+            with mock.patch.object(tf.subprocess, "run", fake), mock.patch.object(tf, "running_session", lambda sid: None), \
+                 mock.patch.object(tf, "vscode_running", lambda: running):
+                ran.clear()
+                self.assertTrue(tf.focus_session(SID_B, "go on")[0])
+                self.assertEqual(ran, [vs, link])
+        code[0] = 1                                                                              # VS Code cannot open it
+        with mock.patch.object(tf.subprocess, "run", fake), mock.patch.object(tf, "running_session", lambda sid: None), \
+             mock.patch.object(tf, "vscode_running", lambda: True):
+            ran.clear()
+            self.assertEqual(tf.focus_session(SID_B, "go on"), (False, f"VS Code could not open {folder}."))
+            self.assertEqual(ran, [vs])                                                         # and the link is never sent
+
+    def test_go_to_session_takes_a_handoffs_one_prompt(self):
+        text = ("T:\n\t- Go back @type(session) @owner(me) @id(g.2) @sessionid(" + SID_B + ")\n\t\tPrompt: apply my comments.\n"
+                "\t- Go back too @type(session) @owner(me) @id(g.3) @sessionid(" + SID_A + ")\n\t\tPrompt: one.\n\t\tPrompt: two.\n"
+                "\t- Work @type(work) @owner(claude) @id(g.1) @sessionid(" + SID_A + ")\n\t\tPrompt: not a hand-off.\n")
+        self.assertEqual(tf.handoff_prompt(text, "g.2", SID_B), "apply my comments.")
+        self.assertIsNone(tf.handoff_prompt(text, "g.2", SID_A))                                 # not this hand-off's session
+        self.assertIsNone(tf.handoff_prompt(text, "g.3", SID_A))                                 # two prompts: which is the user's to pick
+        self.assertIsNone(tf.handoff_prompt(text, "g.1", SID_A))                                 # not a hand-off
+        calls = []
+        with mock.patch.object(tf, "focus_session", lambda sid, prompt=None: (calls.append((sid, prompt)), (True, "Opened it."))[1]):
+            code, r = tf.go_to_session(text, SID_B, "g.2")                                       # not running: opened in VS Code
+            self.assertEqual((code, r["copy"], calls[-1]), (200, "apply my comments.", (SID_B, "apply my comments.")))
+            self.assertEqual(r["message"], "Opened it. It is on the clipboard too.")
+            code, r = tf.go_to_session(text.replace("@sessionid(" + SID_B + ")", "@sessionid(" + SID_A + ")", 1), SID_A, "g.2")
+            self.assertEqual(r["message"], "Opened it. Its prompt is on the clipboard: paste it into the session.")   # running
+            code, r = tf.go_to_session(text, SID_A, "g.1")
+            self.assertEqual((code, r["copy"], r["message"]), (200, None, "Opened it."))
+            self.assertEqual(tf.go_to_session(text, "cccc0000-1111-2222-3333-444455556666", "g.2")[0], 400)
 
     def test_routes_on_the_board_and_the_hub(self):
         tf.host_app = lambda pid: "vscode"

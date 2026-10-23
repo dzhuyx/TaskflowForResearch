@@ -28,6 +28,11 @@
 	<false/>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>Go to session brings a Claude Code session's Ghostty tab to the front.</string>
+	<!-- the calendar of deadlines (deadline_calendar.py) -->
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>The hub keeps your projects' deadlines as events in your calendar of deadlines.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>The hub keeps your projects' deadlines as events in your calendar of deadlines.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Built @DATE@ with Claude Code. Board: Cytoscape.js, dagre, cytoscape-dagre (MIT).</string>
 	<key>TaskflowPython</key>

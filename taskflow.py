@@ -71,6 +71,8 @@ import webbrowser
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+sys.path.append(str(Path(__file__).resolve().parent))   # the hub's calendar of deadlines, beside this script
+import deadline_calendar
 
 APP_DIR = Path(__file__).resolve().parent
 STATIC_DIR = APP_DIR / "static"
@@ -494,13 +496,36 @@ def doc_warnings(it):
 
 
 _SESSION_CACHE = {}
+_SESSION_READ = {}         # session id → (transcript, its inode, bytes read so far, their start and end, title and cwd from them)
+SESSION_CHUNK = 1 << 24    # bytes of a transcript read at a time
+SESSION_MARK = 4096        # bytes at the start and at the end of what was read, compared at the next look
+
+
+def read_mark(fh, done):
+    """A transcript's first and last SESSION_MARK bytes of its first DONE: the same at the next look when it has only grown."""
+    fh.seek(0)
+    head = fh.read(min(done, SESSION_MARK))
+    fh.seek(max(0, done - SESSION_MARK))
+    return head, fh.read(min(done, SESSION_MARK))
+
+
+def session_lines(data, mark):
+    """The lines of DATA (whole lines, each ending in a newline) that contain MARK, in order, each with where it starts."""
+    i = data.find(mark)
+    while i != -1:
+        s, e = data.rfind(b"\n", 0, i) + 1, data.find(b"\n", i)
+        yield s, data[s:e].decode("utf-8", errors="replace")
+        i = data.find(mark, e)
 
 
 def session_info(sid):
     """Title, working directory and transcript of a Claude Code session, read from its transcript (cached).
 
     The title is the session's latest name (a fork's transcript starts with its parent's names). Returns
-    found=False when no transcript exists, for example after Claude Code's transcript clean-up.
+    found=False when no transcript exists, for example after Claude Code's transcript clean-up. A transcript grows to
+    hundreds of MB, so each look reads only what was written since the last one, unless the start or the end of what was
+    read has changed (the file was rewritten: it is read again from the start), and finds the few lines it needs by their
+    marks rather than decoding every line; a line still being written is read at the next look.
     """
     now = time.time()
     hit = _SESSION_CACHE.get(sid)
@@ -512,19 +537,38 @@ def session_info(sid):
         if files:
             info["found"] = True
             try:
-                with open(files[0], encoding="utf-8", errors="replace") as fh:
-                    for line in fh:
-                        if info["cwd"] is None and '"cwd"' in line:
-                            try:
-                                info["cwd"] = json.loads(line).get("cwd")
-                            except ValueError:
-                                pass
-                        if '"custom-title"' in line or '"agent-name"' in line:
+                with open(files[0], "rb") as fh:
+                    st = os.fstat(fh.fileno())
+                    path, inode, done, mark, title, cwd = _SESSION_READ.get(sid, (None, None, 0, None, None, None))
+                    if (path, inode) != (files[0], st.st_ino) or st.st_size < done or read_mark(fh, done) != mark:
+                        done, title, cwd = 0, None, None                     # another file, or rewritten: from the start
+                    fh.seek(done)
+                    rest = b""
+                    while True:
+                        chunk = fh.read(SESSION_CHUNK)
+                        if not chunk:
+                            break
+                        data = rest + chunk
+                        end = data.rfind(b"\n") + 1          # whole lines only; the rest waits for the next chunk
+                        data, rest = data[:end], data[end:]
+                        done += end
+                        if cwd is None:
+                            for _, line in session_lines(data, b'"cwd"'):
+                                try:
+                                    cwd = json.loads(line).get("cwd")
+                                except ValueError:
+                                    continue
+                                if cwd is not None:
+                                    break
+                        named = dict(kv for m in (b'"custom-title"', b'"agent-name"') for kv in session_lines(data, m))
+                        for _, line in sorted(named.items()):      # in the transcript's order: the latest name wins
                             try:
                                 e = json.loads(line)
                             except ValueError:
                                 continue
-                            info["title"] = e.get("customTitle") or e.get("agentName") or info["title"]
+                            title = e.get("customTitle") or e.get("agentName") or title
+                    _SESSION_READ[sid] = (files[0], st.st_ino, done, read_mark(fh, done), title, cwd)
+                    info["title"], info["cwd"] = title, cwd
             except OSError:
                 pass
     _SESSION_CACHE[sid] = (now, info)
@@ -1587,6 +1631,39 @@ def registered_jobs():
 CLAUDE_SESSIONS = Path.home() / ".claude" / "sessions"   # Claude Code's record of each running session, <pid>.json
 CLAUDE_IDE = Path.home() / ".claude" / "ide"             # and of each VS Code window its extension is connected to
 VSCODE_SESSION_LINK = "vscode://anthropic.claude-code/open?session="   # the Claude Code extension's own link
+VSCODE_PAUSE = 1.5         # seconds between opening a session's folder in VS Code and sending it the extension's link
+VSCODE_COLD_PAUSE = 5      # the same when VS Code was not running and has to start
+
+
+def vscode_link(sid, prompt=None):
+    """The extension's link that opens session `sid` in its panel. A prompt goes into the panel's input box, unsent; the
+    extension leaves it out when the session's tab is already open."""
+    return VSCODE_SESSION_LINK + sid + ("&prompt=" + urllib.parse.quote(prompt, safe="") if prompt else "")
+
+
+def vscode_running():
+    return subprocess.run(["pgrep", "-f", "/Visual Studio Code.app/Contents/MacOS/"], capture_output=True, env=PS_ENV).returncode == 0
+
+
+def open_vscode_folder(folder):
+    """Bring forward VS Code's window on `folder`, opening one if there is none, before the extension's link, which goes to
+    the window in front. VS Code holds a link until a window it is opening has loaded (seen on 2026-10-17: a link sent a
+    second after a new window was asked for reached it), so a short pause is enough. (True, "") or (False, why not)."""
+    cold = not vscode_running()
+    if subprocess.run(["open", "-a", "Visual Studio Code", folder], capture_output=True, text=True, timeout=15).returncode != 0:
+        return False, f"VS Code could not open {folder}."
+    time.sleep(VSCODE_COLD_PAUSE if cold else VSCODE_PAUSE)
+    return True, ""
+
+
+def handoff_prompt(text, item_id, sid):
+    """The prompt to go back to session `sid` with: the Prompt line of hand-off `item_id`, when it is a hand-off to that
+    session with exactly one Prompt line; otherwise None."""
+    it = next((i for i in parse(text) if i["id"] == item_id and i["has_id"]), None)
+    if it is None or it["type"] != "session" or sid not in it["sessionids"]:
+        return None
+    prompts = [re.sub(r"^Prompt:\s*", "", n) for n in it["notes"] if re.match(r"Prompt:\s*\S", n)]
+    return prompts[0] if len(prompts) == 1 else None
 PS_ENV = {"TZ": "UTC", "LC_ALL": "C", "PATH": "/bin:/usr/bin"}          # the records keep process start times in UTC
 
 
@@ -1673,11 +1750,21 @@ GHOSTTY_FOCUS = """on run argv
 end run"""
 
 
-def focus_plan(sid):
-    """How to bring session `sid` to the front: (steps, what to say), each step a command; or (None, why not)."""
+def focus_plan(sid, prompt=None):
+    """How to bring session `sid` to the front: (steps, what to say), each step a command; or (None, why not). A session
+    that is not running opens in VS Code's Claude Code panel, in a window on its own folder, with `prompt` (a hand-off's
+    Prompt line) in its input box; ["open-vscode", folder] brings that window forward, opening it if need be."""
     s = running_session(sid)
     if s is None:
-        return None, "That session is not running now; copy its resume command to start it again."
+        info = session_info(sid)
+        if not info["found"]:
+            return None, "That session is not running, and Claude Code no longer has its transcript, so it cannot be resumed."
+        cwd = (info["cwd"] or "").rstrip("/")
+        if not cwd or not os.path.isdir(cwd):
+            return None, f"That session is not running, and its folder ({cwd or 'not recorded'}) is not there; copy its resume command instead."
+        steps = [["open-vscode", cwd], ["open", vscode_link(sid, prompt)]]
+        return steps, (f"Opened the session in VS Code, in {os.path.basename(cwd)}" +
+                       (", with its prompt in the input box: check it, then send it." if prompt else "."))
     app_name = host_app(s["pid"])
     if app_name == "vscode":
         folder = vscode_folder(s["cwd"])
@@ -1692,12 +1779,17 @@ def focus_plan(sid):
     return None, "It runs outside VS Code, Ghostty and Terminal, so its window cannot be brought forward from here."
 
 
-def focus_session(sid):
-    """Bring session `sid` to the front; returns (done, a line saying what happened)."""
-    steps, said = focus_plan(sid)
+def focus_session(sid, prompt=None):
+    """Bring session `sid` to the front, or open it in VS Code if it is not running; returns (done, a line saying what happened)."""
+    steps, said = focus_plan(sid, prompt)
     if steps is None:
         return False, said
     for k, cmd in enumerate(steps):
+        if cmd[0] == "open-vscode":   # the link goes to the window in front: the session's folder's
+            ok, why = open_vscode_folder(cmd[1])
+            if not ok:
+                return False, why
+            continue
         try:
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
         except (OSError, subprocess.TimeoutExpired) as e:
@@ -1716,6 +1808,22 @@ def focus_session(sid):
         if k + 1 < len(steps):
             time.sleep(0.5)                                # let the window come forward before the link opens in it
     return True, said
+
+
+def go_to_session(text, sid, item_id=None):
+    """Go to session, on the board and the hub: session `sid` of a tracker (its text), from its item `item_id`. A hand-off's
+    prompt goes into the panel's input box when the session opens in VS Code, and to the clipboard (reply "copy") always,
+    since a session already open keeps its input box as it is. Returns (HTTP status, reply)."""
+    if sid not in tracker_sessions(text):
+        return HTTPStatus.BAD_REQUEST, {"error": "That session is not one of this tracker's."}
+    prompt = handoff_prompt(text, item_id, sid) if item_id else None
+    running = running_session(sid) is not None
+    done, said = focus_session(sid, prompt)
+    if not done:
+        return HTTPStatus.CONFLICT, {"error": said}
+    if prompt:
+        said += " Its prompt is on the clipboard: paste it into the session." if running else " It is on the clipboard too."
+    return HTTPStatus.OK, {"message": said, "copy": prompt}
 
 
 def sessions_running(sids):
@@ -1878,7 +1986,9 @@ def hub_state():
         first = my_rank if name in ("me", "handoff") else lambda t: (PRIORITY_RANK.get(t["priority"], 1), urgency_rank(t), STATUS_RANK.get(t["status"], 1))
         group.sort(key=lambda t: (first(t), t["project"].lower(), t["path"], t["line"]))
     projects.sort(key=lambda r: (r["archived"], r["name"].lower(), r["path"]))
-    return {"projects": projects, "groups": groups, "list": str(HUB_LIST), "colors": list(PROJECT_COLORS), "hookmark": hookmark_available()}
+    state = {"projects": projects, "groups": groups, "list": str(HUB_LIST), "colors": list(PROJECT_COLORS), "hookmark": hookmark_available()}
+    state["calendar"] = deadline_calendar.status()
+    return state
 
 
 def hub_progress():
@@ -2010,6 +2120,7 @@ def hub_version():
             h.update(Path(e["path"]).read_bytes())
         except OSError as err:
             h.update(f"unreadable: {type(err).__name__}".encode("utf-8"))
+    h.update(json.dumps(deadline_calendar.status()).encode("utf-8"))   # the hub redraws when the calendar's state changes
     return h.hexdigest()
 
 
@@ -2470,12 +2581,8 @@ def make_handler(app):
                 return self._open(body)
             if route == "/api/add-hooks":
                 return self._add_hooks()
-            if route == "/api/session/focus":       # Go to session: bring it to the front
-                sid = str(body.get("sid", ""))
-                if sid not in tracker_sessions(app.read()):
-                    return self._send(HTTPStatus.BAD_REQUEST, {"error": "That session is not one of this tracker's."})
-                done, said = focus_session(sid)
-                return self._send(HTTPStatus.OK if done else HTTPStatus.CONFLICT, {"message": said} if done else {"error": said})
+            if route == "/api/session/focus":       # Go to session: bring it to the front, or open it in VS Code
+                return self._send(*go_to_session(app.read(), str(body.get("sid", "")), str(body.get("item") or "")))
             return self._send(HTTPStatus.NOT_FOUND, {"error": "not found"})
 
         def _add_hooks(self):
@@ -2736,6 +2843,7 @@ def make_hub_handler(hub):
                         changes[kind] = (str(d.get("date") or ""), str(d.get("what") or ""))
                 try:
                     set_project_deadlines(Path(path), changes)
+                    deadline_calendar.poke()
                 except SystemExit as e:
                     return self._send(HTTPStatus.BAD_REQUEST, {"error": str(e)})
                 except (OSError, UnicodeDecodeError) as e:    # not 404, which the page takes for a server older than it
@@ -2759,18 +2867,15 @@ def make_hub_handler(hub):
                 if code != HTTPStatus.OK:
                     return self._send(code, {"error": result.get("error", "The edit failed.")})
                 return self._send(HTTPStatus.OK, hub_state())
-            if route == "/api/hub/session/focus":  # Go to session: bring it to the front
+            if route == "/api/hub/session/focus":  # Go to session: bring it to the front, or open it in VS Code
                 path, sid = str(body.get("path", "")), str(body.get("sid", ""))
                 if not listed(path):
                     return self._send(HTTPStatus.BAD_REQUEST, {"error": f"Not in the hub's list: {path}"})
                 try:
-                    known = tracker_sessions(Path(path).read_text(encoding="utf-8"))
+                    text = Path(path).read_text(encoding="utf-8")
                 except (OSError, UnicodeDecodeError) as e:
                     return self._send(HTTPStatus.NOT_FOUND, {"error": f"Cannot read the tracker: {e}"})
-                if sid not in known:
-                    return self._send(HTTPStatus.BAD_REQUEST, {"error": "That session is not one of this tracker's."})
-                done, said = focus_session(sid)
-                return self._send(HTTPStatus.OK if done else HTTPStatus.CONFLICT, {"message": said} if done else {"error": said})
+                return self._send(*go_to_session(text, sid, str(body.get("item") or "")))
             if route == "/api/hub/open":         # a document linked in a listed tracker, by the board's rule
                 path = str(body.get("path", ""))
                 if not listed(path):
@@ -2937,6 +3042,8 @@ def main(argv=None):
     if a.hub:
         if a.tracker:
             ap.error("--hub takes no tracker path")
+        if a.app:     # the app's hub keeps the calendar of deadlines; a hub in the browser does not
+            deadline_calendar.start(sys.modules[__name__])
         serve(make_hub_handler(HubApp()), "hub", a)
         return
     if not a.tracker:

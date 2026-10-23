@@ -10,5 +10,10 @@ const shown = (n) => !!n && getComputedStyle(n).display !== "none" && n.offsetPa
 const btn = () => det().querySelector(".sessionbox .goto"), live = () => det().querySelector(".sessionbox .live");
 await until(() => btn() && !btn().hidden, 8000);
 check("01 the hub's details show Go to session for a running session", shown(btn()) && /running in Ghostty/.test(live().textContent), [btn() && btn().hidden, live() && live().textContent]);
+check("03 a running session's button says Go to session", btn().textContent === "Go to session", btn().textContent);
+rowOf("al.2").click(); await until(() => det().querySelector("h2") && det().querySelector("h2").textContent === "Hand-off", 3000);
+await sleep(2500);   // the hand-off's session is not running, but its transcript is there: Open in VS Code, never clicked here
+check("04 a stopped hand-off session shows Open in VS Code, with its prompt", shown(btn()) && btn().textContent === "Open in VS Code" &&
+  /with the hand-off's prompt/.test(btn().title) && live().textContent === "", [btn() && btn().hidden, btn() && btn().textContent, btn() && btn().title]);
 check("02 no page errors", errors.length === 0, errors);
 return JSON.stringify(out, null, 1);

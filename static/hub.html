@@ -501,6 +501,7 @@ function deadlineEditor(p) {
     h("div", { class: "muted", style: "font-size:11.5px" }, "Hard: an external, real deadline. Soft: an internal one; it may slip a few days, but keep it. From " + URGENT_DAYS / 7 +
       " weeks before the nearest one, this project's tasks rank ahead of others of the same priority, the nearest deadline first; a soft one counts " + SOFT_GRACE_DAYS +
       " days after its date. Saved on the tracker's title line, where Claude sessions see them too."),
+    state.calendar ? h("div", { class: "muted", style: "font-size:11.5px" }, state.calendar.note + (state.calendar.said ? " Last check: " + state.calendar.said + "." : "")) : [],
     dlErr ? h("p", { class: "err" }, dlErr) : []);
 }
 function emojiButton(p) {
@@ -725,6 +726,10 @@ function summaryChips() {   // the next deadline, and Claude runs that need a lo
   }
   if (flagged.length) chips.push(h("button", { class: "sumchip flag", title: "Click for its details", onclick: () => select(flagged[0].path, flagged[0].id) },
     icon("warn", 13, "#8a3b00"), flagged.length + " Claude run" + (flagged.length === 1 ? " needs" : "s need") + " a look"));
+  // the calendar of deadlines could not be brought up to date (deadline_calendar.py)
+  const cal = state.calendar;
+  if (cal && cal.problem) chips.push(h("button", { class: "sumchip flag", title: "Calendar of deadlines: " + cal.problem, onclick: () => flash("Calendar of deadlines: " + cal.problem, true) },
+    icon("warn", 13, "#8a3b00"), "Calendar of deadlines not updated"));
   return chips.length ? [h("div", { class: "chipsrow" }, chips)] : [];
 }
 function renderTasks() {
@@ -812,14 +817,21 @@ function docRow(d) {
     d.file && !d.hook && d.exists && !(state && state.hookmark === false) ? h("span", { class: "tiny bad", title: "Run 'Add Hookmark links' on the board" }, "no Hookmark link") : [],
     d.file && d.exists === false && !d.hook ? h("span", { class: "tiny bad" }, "file not found") : []);
 }
-function sessionRow(sid) {
+function openTitle(it) {   // Open in VS Code's tooltip: what it does, and whether a hand-off's prompt goes with it
+  const one = !!it && it.type === "session" && it.notes.filter((n) => /^Prompt:\s*\S/.test(n)).length === 1;
+  return "Open this session in VS Code's Claude Code panel" + (one ? ", with the hand-off's prompt in its input box" : "");
+}
+function sessionRow(sid, it) {
   const s = detail.sessions[sid] || {};
   return h("div", { class: "row" },
     h("span", {}, h("b", {}, s.title || "untitled session"), " ", h("code", { title: sid }, sid.slice(0, 8)),
       s.found === false ? h("span", { class: "tiny bad", title: "No transcript under ~/.claude/projects (cleaned up, or another machine)" }, " transcript not found") : [],
       h("span", { class: "live", "data-sid": sid })),   // "running in VS Code", once the server finds it running
-    // Go to session: shown only while the session runs; brings its VS Code panel or Ghostty tab forward
-    h("button", { class: "primary goto", "data-sid": sid, hidden: "hidden", title: "Bring this session's window to the front", onclick: () => gotoSession(sid) }, "Go to session"),
+    // Go to session: while the session runs, brings its VS Code panel or Ghostty tab forward; otherwise,
+    // when its transcript is there, Open in VS Code opens it in VS Code's Claude Code panel, a hand-off's prompt in its input
+    // box
+    h("button", { class: "primary goto", "data-sid": sid, hidden: s.found ? null : "hidden", title: openTitle(it),
+      onclick: (e) => gotoSession(sid, it && it.id, e.currentTarget) }, "Open in VS Code"),
     h("button", { title: s.resume || "", onclick: () => copyText(s.resume || ("claude --resume " + sid), "Resume command copied. Paste it into a terminal.") }, "Copy resume command"),
     h("button", { title: sid, onclick: () => copyText(sid, "Session id copied.") }, "Copy id"));
 }
@@ -830,7 +842,7 @@ function sessionBox(it) {
   const resume = it.sessionids.length ? null : it.notes.find((n) => /claude --resume/.test(n));
   return h("div", { class: "sessionbox" },
     h("div", { class: "shead" }, handoff ? "Go back to this Claude Code session" : "From Claude Code session" + (it.sessionids.length > 1 ? "s" : "")),
-    it.sessionids.length ? it.sessionids.map(sessionRow)
+    it.sessionids.length ? it.sessionids.map((sid) => sessionRow(sid, it))
       : h("div", {}, it.tags.session || "(not named)", " ", h("span", { class: "tiny bad", title: "Add @sessionid(<full session id>) to the item" }, "no @sessionid")),
     resume ? h("div", { class: "muted" }, h("code", {}, resume)) : [],
     prompts.map((pr, k) => h("div", { class: "row" },
@@ -912,14 +924,16 @@ function markRunning(sids, url, still) {   // reveal Go to session for the sessi
   api(url + "ids=" + encodeURIComponent(sids.join(","))).then((r) => {
     if (!r.ok || !still()) return;
     Object.entries(r.data).forEach(([sid, x]) => document.querySelectorAll("[data-sid='" + sid + "']").forEach((n) => {
-      if (n.classList.contains("goto")) n.hidden = false;
+      if (n.classList.contains("goto")) { n.hidden = false; n.textContent = "Go to session"; n.title = "Bring this session's window to the front"; }
       else n.textContent = " ● running in " + (APP_NAME[x.app] || "another app") + (x.status === "busy" ? ", working" : "");
     }));
   });
 }
-async function gotoSession(sid) {
-  const r = await api("/api/hub/session/focus", { path: detail.path, sid });
-  flash(r.ok ? r.data.message : r.data.error || "Error " + r.status, !r.ok);
+async function gotoSession(sid, item, b) {   // the server brings it forward or opens it in VS Code; a hand-off's prompt comes back to copy
+  if (b && b.textContent === "Open in VS Code") flash("Opening the session in VS Code…");
+  const r = await api("/api/hub/session/focus", { path: detail.path, sid, item });
+  if (r.ok && r.data.copy) copyText(r.data.copy, r.data.message);
+  else flash(r.ok ? r.data.message : r.data.error || "Error " + r.status, !r.ok);
 }
 // The field each edit takes its text from, emptied once the edit is saved (a redraw of the same task keeps what is typed)
 const OP_FIELD = { done: "t-done", reopen: "t-done", note: "t-note", step: "i-step", needs: "i-needs" };

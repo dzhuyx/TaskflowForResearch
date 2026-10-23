@@ -27,6 +27,17 @@ echo "Compiling…"
 swiftc -swift-version 5 -O -target "$(uname -m)-apple-macos13.0" \
     -framework AppKit -framework WebKit \
     "$HERE"/Sources/*.swift -o "$APP/Contents/MacOS/Taskflow"
+# the calendar of deadlines' helper (deadline_calendar.swift), with the app's reason for using calendars
+mkdir -p "$APP/Contents/Helpers"
+rm -f "$BUILD/deadline-calendar-Info.plist"
+/usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string local.taskflow.deadline-calendar" \
+    -c "Add :NSCalendarsFullAccessUsageDescription string The hub keeps your projects' deadlines as events in your calendar of deadlines." \
+    "$BUILD/deadline-calendar-Info.plist" >/dev/null
+swiftc -swift-version 5 -O -target "$(uname -m)-apple-macos14.0" -framework EventKit \
+    -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __info_plist -Xlinker "$BUILD/deadline-calendar-Info.plist" \
+    "$HERE/deadline_calendar.swift" -o "$APP/Contents/Helpers/deadline-calendar"
+rm "$BUILD/deadline-calendar-Info.plist"
+codesign --force --sign - "$APP/Contents/Helpers/deadline-calendar"
 
 sed -e "s|@PYTHON@|$PYTHON|" -e "s|@SCRIPT@|$TF_DIR/taskflow.py|" \
     -e "s|@BUILD@|$(date +%Y%m%d%H%M)|" -e "s|@DATE@|$(date +%Y-%m-%d)|" \

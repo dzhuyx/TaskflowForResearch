@@ -170,7 +170,7 @@ Every open item's **Open** button and checklist follow its kind. An item takes t
 | Review 🧑 | The first file to review not yet ticked: the document (or each document of a set read together), then any other file the user must read. | The files the user must read, one step per file, in reading order, added with `--link <id> <path> --to-review`; the user ticks each. Files the user may only consult are linked with `--also` and have no step. |
 | Work package (the user's) 🧑 | The document the user works from or in, when there is one: a draft the user edits, the list of what to submit, a form to fill in. Linked with `--link <id> <path>`. | The user's steps, one per line, whenever the package has more than one, with those already done ticked. The user ticks them on the board or in the hub. |
 | Work package or job (Claude's) 💻 | The document it produces or works from (the draft under revision, the plan it carries out), once that exists; before then, nothing. | Its phases or steps, when it has several and they help the user follow its progress. Its session adds them with `--step <id> "<step>"` and ticks each as it finishes with `--step <id> "<step>" --done`. |
-| Hand-off 🧑‍💻 | No document. The user uses its **Copy prompt**, **Copy resume command** and **Go to session** buttons; the document it acts on is linked on the review it follows. | None. |
+| Hand-off 🧑‍💻 | No document. The user uses its **Copy prompt**, **Copy resume command** and **Go to session** buttons (**Open in VS Code** when the session is not running: it opens in VS Code's Claude Code panel with the `Prompt:` line in its input box, unsent); the document it acts on is linked on the review it follows. | None. |
 
 ## Procedures
 

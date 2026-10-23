@@ -29,7 +29,7 @@ Most tools for running parallel coding agents centre on code: branches, pull req
 1. A session finishes a piece of work, here phase 1 of a simulation study. Through `taskflow.py` it ticks its task and adds two more: a review of its report for you, and a hand-off back to itself that needs the review.
 2. The board and the hub draw the tracker: the review is ready for you, and the hand-off waits for it. What you change there (ticks, steps, notes, status) goes back into the file.
 3. You read the report, answer its questions in the document, and tick the review. The hand-off is now ready.
-4. You go back to the session (**Go to session**, or its resume command) and paste the prompt it left. It runs phase 2, and the board shows it running.
+4. You go back to the session (**Go to session**, or **Open in VS Code** when it is not running, which puts the prompt it left in its input box) and send the prompt it left. It runs phase 2, and the board shows it running.
 
 Steps 3 and 4 on the board: open a review (its chain stays bright), tick a step of its checklist (written straight into the tracker), Go to session, then a hand-off with its prompt to paste.
 
@@ -47,7 +47,8 @@ Steps 3 and 4 on the board: open a review (its chain stays bright), tick a step 
 | `templates/tracker_template.taskpaper` | The starting point for a new tracker. |
 | `skills/taskflow-tracker/` | The Claude Code skill that teaches sessions the tracker's conventions. |
 | `skills/session-huddle/` | A Claude Code skill for coordinating several open sessions through cross-session messages. |
-| `test_taskflow.py`, `tests/browser/` | Python tests, and WebKit tests of the board, the hub and the Progress view. |
+| `deadline_calendar.py`, `macapp/deadline_calendar.swift` | Optional, in the app: the hub's calendar of deadlines, which keeps every project's deadlines as events in one of your calendars. |
+| `test_taskflow.py`, `test_deadline_calendar.py`, `tests/browser/` | Python tests, and WebKit tests of the board, the hub and the Progress view. |
 
 ## Quick start
 
@@ -140,7 +141,7 @@ One tracker, as a dependency graph (the picture at the top). A card's bar says w
 
 A hand-off is a task for you: go back to a Claude Code session and give it an instruction. Sessions add them when they need you, usually after a review, so a hand-off waits until you tick the review. Its panel names the session and gives three ways back:
 
-- **Go to session**, while the session runs: brings its Ghostty tab or VS Code window to the front.
+- **Go to session**, while the session runs: brings its Ghostty tab or VS Code window to the front. When it is not running, **Open in VS Code** opens it in VS Code's Claude Code panel, in a window on its folder, with a hand-off's prompt in the input box, unsent.
 - **Copy resume command** (`cd <its folder> && claude --resume <id>`), once it has closed.
 - **Copy prompt**: the instruction the session left, ready to paste.
 
@@ -154,6 +155,8 @@ A hand-off is a task for you: go back to a Claude Code session and give it an in
 - **What you can act on now** (middle): your unblocked tasks and hand-offs across every project, ranked by priority; then, within each priority, by how much finishing them frees Claude to work (each Claude task waiting on one counts 1, shared among everything that task still waits for, and a hand-off half that), so Claude's sessions are not left idle; then by how close the project's deadline is; then by what else finishing them starts.
 - **The task you clicked** (right): the board's panel for it, with the same edits (tick it, set its status, work through its checklist, add a note or a prerequisite), its documents and session, and a button to open it on its board.
 
+**Your calendar of deadlines** (optional, in the app; macOS 14 or later): the hub can keep every unarchived project's deadlines as all-day events in a calendar of yours named Deadline or Deadlines, in any account Calendar has (Google, iCloud, …), so they show in Calendar, Fantastical and on your phone. Each event's title starts with 🌊 and names the project and what is due; it is free time, with an alert at 9:00 seven days before a hard deadline and three days before a soft one. Setting, changing or clearing a deadline, or archiving a project, changes the calendar within a minute. Only Taskflow's own events (marked in their notes) are ever touched, and one changed in the calendar is put back as the tracker has it, so change deadlines in Taskflow. To turn it on, make the calendar, then create `deadline_calendar.json` beside `taskflow.py` holding `{}`, or `{"source": "Google"}` when calendars in two accounts have that name, and reopen the app; macOS asks once whether Taskflow may use your calendars. **⋯ › Deadlines…** says when it last checked; if it cannot update the calendar, nothing is written and a chip at the top of the hub says why. To turn it off, delete the file, then the events.
+
 ## Progress
 
 ![Progress: the open, added and finished counts, how long tasks wait once unblocked, and calendars of finished tasks per day over the past year, for you, for Claude and combined, with streaks.](docs/images/progress.png)
@@ -166,12 +169,13 @@ The hub's Progress view (built from `@added` and `@done`) counts what is open, a
 
 ```sh
 python3 test_taskflow.py          # the Python tests
+python3 test_deadline_calendar.py # the calendar of deadlines, against a fake calendar
 tests/browser/run_all.sh          # the board, hub and Progress view in WebKit (needs Xcode's command line tools)
 ```
 
 ## Limits
 
-- macOS only, for the app, the browser tests, document links, Hookmark and Go to session. The board and hub themselves are local web pages and may work elsewhere, untested.
+- macOS only, for the app, the browser tests, document links, Hookmark, Go to session and the calendar of deadlines (macOS 14 or later). The board and hub themselves are local web pages and may work elsewhere, untested.
 - It reads Claude Code's own files: session transcripts in `~/.claude/projects/` (for session titles and activity) and `~/.claude/sessions/` (for Go to session). These are not documented interfaces. When they change, the affected parts stop working; the rest goes on.
 - One user, local only: the servers listen on 127.0.0.1 and refuse requests from other websites (every change needs a token from the page). Other programs on the same Mac can still read your trackers and fetch that token, so use Taskflow on a Mac where you are the only user.
 - A document link that would run something (an app, a script, an installer) is shown in Finder, not opened; open it yourself if you trust it. `hook://` links are opened by Hookmark, which this check cannot see into.
